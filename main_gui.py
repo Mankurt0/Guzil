@@ -9,6 +9,7 @@ import os
 from database import Database
 from auth import AuthManager
 from config import Config
+import sqlite3
 
 class TradingAppGUI:
     def __init__(self):
