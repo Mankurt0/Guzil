@@ -3,44 +3,123 @@
 {% block title %}Главная - {{ company_name }}{% endblock %}
 
 {% block content %}
-<div class="row">
+<!-- Герой секция -->
+<div class="row mb-5">
     <div class="col-12">
-        <h1 class="display-4">Добро пожаловать в {{ company_name }}</h1>
-        <p class="lead">Мы предлагаем качественные товары и отличный сервис.</p>
-        
-        {% if sections %}
-            {% for section, content in sections.items() %}
-            <div class="card mb-4">
-                <div class="card-body">
-                    {% if content.content_type == 'html' %}
-                        {{ content.content|safe }}
-                    {% else %}
-                        <p>{{ content.content }}</p>
-                    {% endif %}
-                </div>
-            </div>
-            {% endfor %}
-        {% endif %}
+        <div class="p-5 bg-primary text-white rounded-3">
+            {% if sections.hero %}
+                {% if sections.hero.content_type == 'html' %}
+                    {{ sections.hero.content|safe }}
+                {% else %}
+                    <h1 class="display-4">{{ sections.hero.content }}</h1>
+                {% endif %}
+            {% else %}
+                <h1 class="display-4">Добро пожаловать в {{ company_name }}</h1>
+                <p class="lead">Мы предлагаем качественные товары и отличный сервис.</p>
+            {% endif %}
+            <a href="/products" class="btn btn-light btn-lg mt-3">Смотреть товары</a>
+        </div>
     </div>
 </div>
 
-{% if products %}
-<div class="row mt-5">
+<!-- Статистика -->
+<div class="row mb-5">
+    <div class="col-md-4 mb-3">
+        <div class="card stats-card">
+            <div class="card-body text-center">
+                <h2><i class="bi bi-box"></i></h2>
+                <h3>{{ products_count }}</h3>
+                <p>Товаров в каталоге</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card stats-card">
+            <div class="card-body text-center">
+                <h2><i class="bi bi-people"></i></h2>
+                <h3>{{ clients_count }}</h3>
+                <p>Довольных клиентов</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card stats-card">
+            <div class="card-body text-center">
+                <h2><i class="bi bi-cart-check"></i></h2>
+                <h3>{{ today_orders }}</h3>
+                <p>Заказов сегодня</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- О компании -->
+{% if sections.about %}
+<div class="row mb-5">
     <div class="col-12">
-        <h2>Популярные товары</h2>
+        <div class="card">
+            <div class="card-body">
+                {% if sections.about.content_type == 'html' %}
+                    {{ sections.about.content|safe }}
+                {% else %}
+                    <h2 class="card-title">О компании</h2>
+                    <p class="card-text">{{ sections.about.content }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Популярные товары -->
+{% if products %}
+<div class="row mb-5">
+    <div class="col-12">
+        <h2 class="mb-4">Популярные товары</h2>
         <div class="row">
             {% for product in products %}
             <div class="col-md-3 mb-4">
-                <div class="card product-card">
-                    <div class="card-body">
+                <div class="card product-card h-100">
+                    <div class="card-body d-flex flex-column">
                         <h5 class="card-title">{{ product.name }}</h5>
-                        <p class="card-text">{{ product.description[:100] }}...</p>
-                        <p class="text-success fw-bold">{{ product.unit_price }} руб.</p>
-                        <p class="text-muted">Артикул: {{ product.sku }}</p>
+                        <p class="card-text flex-grow-1">{{ product.description[:100] }}{% if product.description|length > 100 %}...{% endif %}</p>
+                        <div class="mt-auto">
+                            <p class="text-success fw-bold">{{ product.unit_price }} руб.</p>
+                            <p class="text-muted small mb-2">Артикул: {{ product.sku }}</p>
+                            <p class="small {% if product.quantity > 0 %}text-success{% else %}text-danger{% endif %}">
+                                {% if product.quantity > 0 %}
+                                    <i class="bi bi-check-circle"></i> В наличии: {{ product.quantity }} шт.
+                                {% else %}
+                                    <i class="bi bi-x-circle"></i> Нет в наличии
+                                {% endif %}
+                            </p>
+                            <a href="/product/{{ product.id }}" class="btn btn-outline-primary w-100">Подробнее</a>
+                        </div>
                     </div>
                 </div>
             </div>
             {% endfor %}
+        </div>
+        <div class="text-center mt-3">
+            <a href="/products" class="btn btn-primary">Все товары</a>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Преимущества -->
+{% if sections.features %}
+<div class="row mt-5">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                {% if sections.features.content_type == 'html' %}
+                    {{ sections.features.content|safe }}
+                {% else %}
+                    <h2 class="card-title">Наши преимущества</h2>
+                    <p class="card-text">{{ sections.features.content }}</p>
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>

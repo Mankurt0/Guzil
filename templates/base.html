@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ company_name }}{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <style>
         body { padding-top: 20px; }
         .navbar-brand { font-weight: bold; }
@@ -14,7 +15,10 @@
         .card-img-top { height: 200px; object-fit: cover; }
         .login-container { max-width: 400px; margin: 0 auto; padding-top: 50px; }
         .alert { margin-top: 20px; }
+        .stats-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .content-editor { min-height: 200px; }
     </style>
+    {% block styles %}{% endblock %}
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
@@ -25,20 +29,48 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
-                    <li class="nav-item"><a class="nav-link" href="/">Главная</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/products">Товары</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/contacts">Контакты</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/"><i class="bi bi-house"></i> Главная</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/products"><i class="bi bi-box"></i> Товары</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/about"><i class="bi bi-info-circle"></i> О компании</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/contacts"><i class="bi bi-telephone"></i> Контакты</a></li>
                 </ul>
                 {% if current_user.is_authenticated %}
-                    <span class="navbar-text me-3">{{ current_user.full_name }}</span>
-                    <a href="/admin" class="btn btn-outline-primary btn-sm me-2">Панель управления</a>
-                    <a href="/logout" class="btn btn-outline-secondary btn-sm">Выйти</a>
+                    <div class="dropdown">
+                        <button class="btn btn-outline-primary dropdown-toggle" type="button" id="userMenu" data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle"></i> {{ current_user.full_name }}
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/profile"><i class="bi bi-person"></i> Профиль</a></li>
+                            {% if current_user.role in ['admin', 'content_manager'] %}
+                                <li><a class="dropdown-item" href="/admin"><i class="bi bi-speedometer2"></i> Панель управления</a></li>
+                            {% endif %}
+                            {% if current_user.role in ['admin', 'manager'] %}
+                                <li><a class="dropdown-item" href="/admin/orders"><i class="bi bi-cart"></i> Заказы</a></li>
+                            {% endif %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> Выйти</a></li>
+                        </ul>
+                    </div>
                 {% else %}
-                    <a href="/login" class="btn btn-primary btn-sm">Вход для сотрудников</a>
+                    <a href="/login" class="btn btn-primary"><i class="bi bi-box-arrow-in-right"></i> Вход для сотрудников</a>
                 {% endif %}
             </div>
         </div>
     </nav>
+
+    <!-- Сообщения Flash -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="container mt-3">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
 
     <main class="container mt-4">
         {% block content %}{% endblock %}
@@ -46,7 +78,7 @@
 
     <footer class="footer">
         <div class="container text-center">
-            <p>&copy; {{ now().year }} {{ company_name }}. Все права защищены.</p>
+            <p>&copy; {{ current_year }} {{ company_name }}. Все права защищены.</p>
             <p class="text-muted small">
                 Обработка персональных данных осуществляется в соответствии с ФЗ-152
             </p>
@@ -54,6 +86,7 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

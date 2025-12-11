@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+
+{% block title %}Управление контентом - {{ company_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card mb-4">
+            <div class="card-body">
+                <h3 class="card-title">Управление контентом сайта</h3>
+                <p class="card-text">Редактирование содержимого страниц сайта.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Страницы</h5>
+                <div class="list-group">
+                    <a href="#page-index" class="list-group-item list-group-item-action" data-bs-toggle="collapse">
+                        Главная страница
+                    </a>
+                    <div class="collapse show" id="page-index">
+                        <div class="list-group list-group-flush">
+                            {% for item in pages.index %}
+                            <a href="#section-{{ item.section }}" class="list-group-item list-group-item-action" 
+                               onclick="editSection('index', '{{ item.section }}', `{{ item.content|e }}`, '{{ item.content_type }}', {{ item.is_published }})">
+                                {{ item.section }}
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <a href="#page-about" class="list-group-item list-group-item-action" data-bs-toggle="collapse">
+                        О компании
+                    </a>
+                    <div class="collapse" id="page-about">
+                        <div class="list-group list-group-flush">
+                            {% if pages.about %}
+                                {% for item in pages.about %}
+                                <a href="#section-{{ item.section }}" class="list-group-item list-group-item-action" 
+                                   onclick="editSection('about', '{{ item.section }}', `{{ item.content|e }}`, '{{ item.content_type }}', {{ item.is_published }})">
+                                    {{ item.section }}
+                                </a>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <a href="#page-contacts" class="list-group-item list-group-item-action" data-bs-toggle="collapse">
+                        Контакты
+                    </a>
+                    <div class="collapse" id="page-contacts">
+                        <div class="list-group list-group-flush">
+                            {% if pages.contacts %}
+                                {% for item in pages.contacts %}
+                                <a href="#section-{{ item.section }}" class="list-group-item list-group-item-action" 
+                                   onclick="editSection('contacts', '{{ item.section }}', `{{ item.content|e }}`, '{{ item.content_type }}', {{ item.is_published }})">
+                                    {{ item.section }}
+                                </a>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <button class="btn btn-success w-100" onclick="showAddSectionModal()">
+                        <i class="bi bi-plus-circle"></i> Добавить раздел
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title" id="editor-title">Выберите раздел для редактирования</h5>
+                
+                <form id="content-form">
+                    <input type="hidden" id="page_name" name="page_name">
+                    <input type="hidden" id="section_name" name="section">
+                    
+                    <div class="mb-3">
+                        <label for="content_type" class="form-label">Тип контента</label>
+                        <select class="form-select" id="content_type" name="content_type">
+                            <option value="text">Текст</option>
+                            <option value="html">HTML</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="content" class="form-label">Содержимое</label>
+                        <textarea class="form-control content-editor" id="content" name="content" rows="10"></textarea>
+                    </div>
+                    
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="is_published" name="is_published" checked>
+                        <label class="form-check-label" for="is_published">Опубликовано</label>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-primary" onclick="saveContent()">
+                            <i class="bi bi-save"></i> Сохранить
+                        </button>
+                        <button type="button" class="btn btn-danger" onclick="deleteSection()" id="delete-btn" style="display: none;">
+                            <i class="bi bi-trash"></i> Удалить
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="previewContent()" id="preview-btn" style="display: none;">
+                            <i class="bi bi-eye"></i> Предпросмотр
+                        </button>
+                    </div>
+                </form>
+                
+                <div id="preview-area" class="mt-3" style="display: none;">
+                    <h6>Предпросмотр:</h6>
+                    <div class="border p-3 rounded" id="preview-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно добавления раздела -->
+<div class="modal fade" id="addSectionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Добавить новый раздел</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="add-section-form">
+                    <div class="mb-3">
+                        <label for="new_page_name" class="form-label">Страница</label>
+                        <select class="form-select" id="new_page_name" name="page_name" required>
+                            <option value="index">Главная страница</option>
+                            <option value="about">О компании</option>
+                            <option value="contacts">Контакты</option>
+                            <option value="other">Другая страница</option>
+                        </select>
+                    </div>
+                    <div class="mb-3" id="custom_page_name_div" style="display: none;">
+                        <label for="custom_page_name" class="form-label">Название страницы</label>
+                        <input type="text" class="form-control" id="custom_page_name" name="custom_page_name">
+                    </div>
+                    <div class="mb-3">
+                        <label for="new_section" class="form-label">Название раздела</label>
+                        <input type="text" class="form-control" id="new_section" name="section" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="new_content_type" class="form-label">Тип контента</label>
+                        <select class="form-select" id="new_content_type" name="content_type">
+                            <option value="text">Текст</option>
+                            <option value="html">HTML</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="addNewSection()">Добавить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+let currentSection = null;
+
+function editSection(page, section, content, contentType, isPublished) {
+    currentSection = { page, section };
+    $('#editor-title').text(`Редактирование: ${page} → ${section}`);
+    $('#page_name').val(page);
+    $('#section_name').val(section);
+    $('#content').val(content);
+    $('#content_type').val(contentType);
+    $('#is_published').prop('checked', isPublished);
+    $('#delete-btn').show();
+    $('#preview-btn').show();
+    
+    // Скрываем превью
+    $('#preview-area').hide();
+}
+
+function showAddSectionModal() {
+    $('#addSectionModal').modal('show');
+}
+
+$('#new_page_name').change(function() {
+    if ($(this).val() === 'other') {
+        $('#custom_page_name_div').show();
+    } else {
+        $('#custom_page_name_div').hide();
+    }
+});
+
+function addNewSection() {
+    const pageName = $('#new_page_name').val() === 'other' 
+        ? $('#custom_page_name').val() 
+        : $('#new_page_name').val();
+    const section = $('#new_section').val();
+    const contentType = $('#new_content_type').val();
+    
+    if (!pageName || !section) {
+        alert('Заполните все обязательные поля');
+        return;
+    }
+    
+    editSection(pageName, section, '', contentType, true);
+    $('#addSectionModal').modal('hide');
+    
+    // Очищаем форму
+    $('#add-section-form')[0].reset();
+    $('#custom_page_name_div').hide();
+}
+
+function saveContent() {
+    if (!currentSection) {
+        alert('Выберите раздел для редактирования');
+        return;
+    }
+    
+    const pageName = $('#page_name').val();
+    const section = $('#section_name').val();
+    const content = $('#content').val();
+    const contentType = $('#content_type').val();
+    const isPublished = $('#is_published').is(':checked');
+    
+    const data = {
+        page_name: pageName,
+        section: section,
+        content: content,
+        content_type: contentType,
+        is_published: isPublished
+    };
+    
+    // Определяем метод (POST для нового, PUT для существующего)
+    const method = currentSection.page === pageName && currentSection.section === section ? 'PUT' : 'POST';
+    
+    fetch('/api/content', {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Изменения сохранены успешно');
+            location.reload();
+        } else {
+            alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Произошла ошибка при сохранении');
+    });
+}
+
+function deleteSection() {
+    if (!currentSection || !confirm('Вы уверены, что хотите удалить этот раздел?')) {
+        return;
+    }
+    
+    const data = {
+        page_name: currentSection.page,
+        section: currentSection.section
+    };
+    
+    fetch('/api/content', {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Раздел удален успешно');
+            location.reload();
+        } else {
+            alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Произошла ошибка при удалении');
+    });
+}
+
+function previewContent() {
+    const contentType = $('#content_type').val();
+    const content = $('#content').val();
+    
+    if (contentType === 'html') {
+        $('#preview-content').html(content);
+    } else {
+        $('#preview-content').text(content);
+    }
+    
+    $('#preview-area').show();
+}
+</script>
+{% endblock %}
+{% endblock %}

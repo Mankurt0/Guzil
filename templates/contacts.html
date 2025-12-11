@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Контакты - {{ company_name }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1>Контакты</h1>
+        <p class="lead">Свяжитесь с нами любым удобным способом</p>
+    </div>
+</div>
+
+<div class="row">
+    {% if sections %}
+        {% for section_name, section in sections.items() %}
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    {% if section.content_type == 'html' %}
+                        {{ section.content|safe }}
+                    {% else %}
+                        <h5 class="card-title">{{ section_name|title }}</h5>
+                        <p class="card-text">{{ section.content }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <div class="col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Адрес</h5>
+                <p class="card-text">г. Москва, ул. Примерная, д. 123</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Телефон</h5>
+                <p class="card-text">+7 (495) 123-45-67</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Email</h5>
+                <p class="card-text">info@example.com</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Режим работы</h5>
+                <p class="card-text">
+                    Пн-Пт: 9:00-18:00<br>
+                    Сб-Вс: 10:00-16:00
+                </p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Напишите нам</h5>
+                <form id="contact-form">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="name" class="form-label">Ваше имя</label>
+                            <input type="text" class="form-control" id="name" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="email" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="email" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="subject" class="form-label">Тема</label>
+                        <input type="text" class="form-control" id="subject" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="message" class="form-label">Сообщение</label>
+                        <textarea class="form-control" id="message" rows="5" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Отправить сообщение</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+document.getElementById('contact-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    // Здесь должна быть логика отправки формы
+    alert('Сообщение отправлено! Мы свяжемся с вами в ближайшее время.');
+    this.reset();
+});
+</script>
+{% endblock %}
+{% endblock %}

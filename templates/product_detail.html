@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} - {{ company_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/">Главная</a></li>
+                <li class="breadcrumb-item"><a href="/products">Товары</a></li>
+                {% if product.category %}
+                <li class="breadcrumb-item"><a href="/products?category={{ product.category }}">{{ product.category }}</a></li>
+                {% endif %}
+                <li class="breadcrumb-item active">{{ product.name }}</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h1 class="card-title">{{ product.name }}</h1>
+                <p class="text-muted">Артикул: {{ product.sku }}</p>
+                
+                <div class="mb-3">
+                    <h3 class="text-success">{{ product.unit_price }} руб.</h3>
+                </div>
+                
+                <div class="mb-3">
+                    <p class="{% if product.quantity > 0 %}text-success{% else %}text-danger{% endif %}">
+                        {% if product.quantity > 0 %}
+                            <i class="bi bi-check-circle"></i> В наличии: {{ product.quantity }} шт.
+                        {% else %}
+                            <i class="bi bi-x-circle"></i> Нет в наличии
+                        {% endif %}
+                    </p>
+                </div>
+                
+                {% if product.category %}
+                <div class="mb-3">
+                    <p><strong>Категория:</strong> {{ product.category }}</p>
+                </div>
+                {% endif %}
+                
+                {% if product.supplier %}
+                <div class="mb-3">
+                    <p><strong>Поставщик:</strong> {{ product.supplier }}</p>
+                </div>
+                {% endif %}
+                
+                {% if product.barcode %}
+                <div class="mb-3">
+                    <p><strong>Штрих-код:</strong> {{ product.barcode }}</p>
+                </div>
+                {% endif %}
+                
+                <div class="d-grid gap-2">
+                    {% if current_user.is_authenticated and current_user.role in ['admin', 'manager', 'cashier'] %}
+                    <a href="/admin/orders" class="btn btn-primary">
+                        <i class="bi bi-cart-plus"></i> Создать заказ с этим товаром
+                    </a>
+                    {% endif %}
+                    <a href="/products" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Вернуться к товарам
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Описание товара</h5>
+                <p class="card-text">
+                    {% if product.description %}
+                        {{ product.description|replace('\n', '<br>')|safe }}
+                    {% else %}
+                        Описание отсутствует.
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+        
+        {% if product.min_quantity %}
+        <div class="card mt-3">
+            <div class="card-body">
+                <h5 class="card-title">Информация о запасах</h5>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span>Минимальный запас:</span>
+                        <span>{{ product.min_quantity }} шт.</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span>Максимальный запас:</span>
+                        <span>{{ product.max_quantity }} шт.</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span>Текущий остаток:</span>
+                        <span class="{% if product.quantity < product.min_quantity %}text-danger{% else %}text-success{% endif %}">
+                            {{ product.quantity }} шт.
+                        </span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if similar_products %}
+<div class="row mt-5">
+    <div class="col-12">
+        <h3>Похожие товары</h3>
+        <div class="row">
+            {% for product in similar_products %}
+            <div class="col-md-3 mb-4">
+                <div class="card product-card h-100">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">{{ product.name }}</h5>
+                        <p class="card-text flex-grow-1">{{ product.description[:100] }}{% if product.description|length > 100 %}...{% endif %}</p>
+                        <div class="mt-auto">
+                            <p class="text-success fw-bold">{{ product.unit_price }} руб.</p>
+                            <a href="/product/{{ product.id }}" class="btn btn-outline-primary w-100">Подробнее</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}О компании - {{ company_name }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1>О компании</h1>
+    </div>
+</div>
+
+{% if sections %}
+    {% for section_name, section in sections.items() %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    {% if section.content_type == 'html' %}
+                        {{ section.content|safe }}
+                    {% else %}
+                        <h2 class="card-title">{{ section_name|title }}</h2>
+                        <p class="card-text">{{ section.content }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="card-title">О нашей компании</h2>
+                <p class="card-text">
+                    Мы — современная компания, специализирующаяся на торговле качественными товарами. 
+                    Наша миссия — предоставлять клиентам лучшие продукты по доступным ценам.
+                </p>
+                <p class="card-text">
+                    С 2010 года мы успешно работаем на рынке, постоянно расширяя ассортимент 
+                    и улучшая сервис для наших клиентов.
+                </p>
+                <h3>Наши ценности:</h3>
+                <ul>
+                    <li>Качество продукции</li>
+                    <li>Профессионализм сотрудников</li>
+                    <li>Ответственность перед клиентами</li>
+                    <li>Инновации в работе</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row mt-5">
+    <div class="col-md-4 mb-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h2><i class="bi bi-award"></i></h2>
+                <h4>Качество</h4>
+                <p>Гарантия качества всех товаров</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h2><i class="bi bi-clock-history"></i></h2>
+                <h4>Опыт</h4>
+                <p>Более 10 лет успешной работы</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h2><i class="bi bi-people"></i></h2>
+                <h4>Клиенты</h4>
+                <p>Тысячи довольных клиентов</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

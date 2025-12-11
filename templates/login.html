@@ -8,10 +8,6 @@
         <div class="card-body">
             <h2 class="card-title text-center mb-4">Вход в систему</h2>
             
-            {% if error %}
-            <div class="alert alert-danger">{{ error }}</div>
-            {% endif %}
-            
             <form method="POST" action="/login">
                 <div class="mb-3">
                     <label for="username" class="form-label">Логин</label>
