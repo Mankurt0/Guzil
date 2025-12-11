@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Панель управления - {{ company_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Навигация</h5>
+                <div class="list-group">
+                    <a href="#" class="list-group-item list-group-item-action">Управление контентом</a>
+                    <a href="#" class="list-group-item list-group-item-action">Товары</a>
+                    <a href="#" class="list-group-item list-group-item-action">Заказы</a>
+                    <a href="#" class="list-group-item list-group-item-action">Клиенты</a>
+                    <a href="#" class="list-group-item list-group-item-action">Отчеты</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-body">
+                <h3 class="card-title">Панель управления контентом</h3>
+                <p class="card-text">Добро пожаловать, {{ user.full_name }}!</p>
+                <p class="card-text">Ваша роль: <strong>{{ user.role }}</strong></p>
+                
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Быстрые действия</h5>
+                                <button class="btn btn-primary w-100 mb-2">Добавить товар</button>
+                                <button class="btn btn-success w-100 mb-2">Создать заказ</button>
+                                <button class="btn btn-info w-100 mb-2">Добавить клиента</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Статистика</h5>
+                                <p>Сегодняшние заказы: <strong>0</strong></p>
+                                <p>Новых клиентов: <strong>0</strong></p>
+                                <p>Товаров на складе: <strong>0</strong></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

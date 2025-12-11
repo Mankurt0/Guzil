@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Главная - {{ company_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="display-4">Добро пожаловать в {{ company_name }}</h1>
+        <p class="lead">Мы предлагаем качественные товары и отличный сервис.</p>
+        
+        {% if sections %}
+            {% for section, content in sections.items() %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    {% if content.content_type == 'html' %}
+                        {{ content.content|safe }}
+                    {% else %}
+                        <p>{{ content.content }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+</div>
+
+{% if products %}
+<div class="row mt-5">
+    <div class="col-12">
+        <h2>Популярные товары</h2>
+        <div class="row">
+            {% for product in products %}
+            <div class="col-md-3 mb-4">
+                <div class="card product-card">
+                    <div class="card-body">
+                        <h5 class="card-title">{{ product.name }}</h5>
+                        <p class="card-text">{{ product.description[:100] }}...</p>
+                        <p class="text-success fw-bold">{{ product.unit_price }} руб.</p>
+                        <p class="text-muted">Артикул: {{ product.sku }}</p>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
