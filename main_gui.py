@@ -2,8 +2,10 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 from tkinter import filedialog
+from datetime import datetime, timedelta
 import json
-from datetime import datetime
+import csv
+import os
 from database import Database
 from auth import AuthManager
 from config import Config
@@ -32,6 +34,7 @@ class TradingAppGUI:
         style.configure('Heading.TLabel', font=('Arial', 12, 'bold'))
         style.configure('Success.TButton', foreground='green')
         style.configure('Danger.TButton', foreground='red')
+        style.configure('Warning.TButton', foreground='orange')
     
     def clear_window(self):
         """Очистка окна"""
@@ -151,28 +154,48 @@ class TradingAppGUI:
         logout_button.pack(side=tk.RIGHT)
         
         # Панель вкладок
-        notebook = ttk.Notebook(self.root)
-        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # Создаем вкладки в зависимости от роли
         if self.auth.has_permission(self.current_user['role'], 'viewer'):
-            self.create_clients_tab(notebook)
-            self.create_products_tab(notebook)
+            self.create_clients_tab()
+            self.create_products_tab()
         
         if self.auth.has_permission(self.current_user['role'], 'cashier'):
-            self.create_orders_tab(notebook)
+            self.create_orders_tab()
         
         if self.auth.has_permission(self.current_user['role'], 'manager'):
-            self.create_reports_tab(notebook)
+            self.create_reports_tab()
         
         if self.current_user['role'] == 'admin':
-            self.create_admin_tab(notebook)
-            self.create_audit_tab(notebook)
+            self.create_admin_tab()
+            self.create_audit_tab()
+        
+        # Кнопка обновления всех вкладок
+        refresh_button = ttk.Button(self.root, text="Обновить все", command=self.refresh_all_tabs)
+        refresh_button.pack(pady=5)
     
-    def create_clients_tab(self, notebook):
+    def refresh_all_tabs(self):
+        """Обновление всех вкладок"""
+        current_tab = self.notebook.index(self.notebook.select())
+        
+        if hasattr(self, 'clients_tree'):
+            self.load_clients()
+        if hasattr(self, 'products_tree'):
+            self.load_products()
+        if hasattr(self, 'orders_tree'):
+            self.load_orders()
+        if hasattr(self, 'audit_tree'):
+            self.load_audit_logs()
+        
+        # Возвращаемся на текущую вкладку
+        self.notebook.select(current_tab)
+    
+    def create_clients_tab(self):
         """Вкладка управления клиентами"""
-        frame = ttk.Frame(notebook)
-        notebook.add(frame, text="Клиенты")
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text="Клиенты")
         
         # Панель инструментов
         toolbar = ttk.Frame(frame)
@@ -181,6 +204,7 @@ class TradingAppGUI:
         ttk.Button(toolbar, text="Добавить", command=self.add_client_dialog).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Редактировать", command=self.edit_client_dialog).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Удалить", command=self.delete_client_dialog, style='Danger.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Экспорт в CSV", command=self.export_clients_csv).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Обновить", command=self.load_clients).pack(side=tk.LEFT, padx=2)
         
         # Поиск
@@ -189,7 +213,8 @@ class TradingAppGUI:
         ttk.Label(search_frame, text="Поиск:").pack(side=tk.LEFT)
         self.client_search_entry = ttk.Entry(search_frame, width=20)
         self.client_search_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Button(search_frame, text="Найти", command=self.search_clients).pack(side=tk.LEFT)
+        self.client_search_entry.bind('<KeyRelease>', lambda e: self.search_clients())
+        ttk.Button(search_frame, text="Очистить", command=self.clear_client_search).pack(side=tk.LEFT)
         
         # Таблица клиентов
         columns = ("ID", "Код", "ФИО", "Телефон", "Email", "Адрес", "Дата регистрации")
@@ -211,6 +236,9 @@ class TradingAppGUI:
     
     def load_clients(self):
         """Загрузка клиентов из БД"""
+        if not hasattr(self, 'clients_tree'):
+            return
+            
         for item in self.clients_tree.get_children():
             self.clients_tree.delete(item)
         
@@ -230,23 +258,29 @@ class TradingAppGUI:
         """Диалог добавления клиента"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Добавить клиента")
-        dialog.geometry("500x600")
+        dialog.geometry("500x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
         
         # Поля формы
         fields = [
-            ("ФИО*", "full_name"),
-            ("Телефон", "phone"),
-            ("Email", "email"),
-            ("Адрес", "address"),
-            ("Примечания", "notes")
+            ("ФИО*", "full_name", True),
+            ("Телефон", "phone", False),
+            ("Email", "email", False),
+            ("Адрес", "address", False),
+            ("Примечания", "notes", False)
         ]
         
         entries = {}
         
-        for i, (label_text, field_name) in enumerate(fields):
+        for i, (label_text, field_name, required) in enumerate(fields):
             ttk.Label(dialog, text=label_text).grid(row=i, column=0, sticky=tk.W, padx=10, pady=5)
-            entry = ttk.Entry(dialog, width=40)
-            entry.grid(row=i, column=1, padx=10, pady=5)
+            if field_name == 'notes':
+                entry = scrolledtext.ScrolledText(dialog, width=40, height=4)
+                entry.grid(row=i, column=1, padx=10, pady=5, sticky='nsew')
+            else:
+                entry = ttk.Entry(dialog, width=40)
+                entry.grid(row=i, column=1, padx=10, pady=5)
             entries[field_name] = entry
         
         # Согласие на обработку данных
@@ -260,11 +294,13 @@ class TradingAppGUI:
         
         def save_client():
             client_data = {
-                'full_name': entries['full_name'].get().strip(),
+                'full_name': entries['full_name'].get().strip() if hasattr(entries['full_name'], 'get') 
+                            else entries['full_name'].get("1.0", tk.END).strip(),
                 'phone': entries['phone'].get().strip(),
                 'email': entries['email'].get().strip(),
                 'address': entries['address'].get().strip(),
-                'notes': entries['notes'].get().strip(),
+                'notes': entries['notes'].get("1.0", tk.END).strip() if hasattr(entries['notes'], 'get') 
+                        else entries['notes'].get().strip(),
                 'personal_data_consent': consent_var.get()
             }
             
@@ -284,40 +320,218 @@ class TradingAppGUI:
             row=len(fields)+1, column=0, columnspan=2, pady=20
         )
     
-    def create_products_tab(self, notebook):
-        """Вкладка управления товарами"""
-        frame = ttk.Frame(notebook)
-        notebook.add(frame, text="Товары")
+    def edit_client_dialog(self):
+        """Редактирование клиента"""
+        selection = self.clients_tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите клиента для редактирования")
+            return
         
-        # ... (аналогично вкладке клиентов)
+        item = self.clients_tree.item(selection[0])
+        client_id = item['values'][0]
+        
+        # Получаем данные клиента
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM clients WHERE id = ?", (client_id,))
+        client = cursor.fetchone()
+        conn.close()
+        
+        if not client:
+            messagebox.showerror("Ошибка", "Клиент не найден")
+            return
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Редактирование клиента: {client['full_name']}")
+        dialog.geometry("500x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Поля формы
+        fields = [
+            ("Код клиента", "client_code", False),
+            ("ФИО*", "full_name", True),
+            ("Телефон", "phone", False),
+            ("Email", "email", False),
+            ("Адрес", "address", False),
+            ("Примечания", "notes", False)
+        ]
+        
+        entries = {}
+        
+        for i, (label_text, field_name, required) in enumerate(fields):
+            ttk.Label(dialog, text=label_text).grid(row=i, column=0, sticky=tk.W, padx=10, pady=5)
+            
+            current_value = client[field_name] if client[field_name] else ""
+            
+            if field_name == 'client_code':
+                # Код клиента только для чтения
+                entry = ttk.Entry(dialog, width=40, state='readonly')
+                entry.insert(0, current_value)
+            elif field_name == 'notes':
+                entry = scrolledtext.ScrolledText(dialog, width=40, height=4)
+                entry.insert("1.0", current_value)
+            else:
+                entry = ttk.Entry(dialog, width=40)
+                entry.insert(0, current_value)
+            
+            entry.grid(row=i, column=1, padx=10, pady=5)
+            entries[field_name] = entry
+        
+        def save_changes():
+            client_data = {
+                'full_name': entries['full_name'].get().strip(),
+                'phone': entries['phone'].get().strip(),
+                'email': entries['email'].get().strip(),
+                'address': entries['address'].get().strip(),
+                'notes': entries['notes'].get("1.0", tk.END).strip() if hasattr(entries['notes'], 'get') 
+                        else entries['notes'].get().strip()
+            }
+            
+            if not client_data['full_name']:
+                messagebox.showerror("Ошибка", "ФИО обязательно для заполнения")
+                return
+            
+            # Обновляем данные в БД
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    UPDATE clients 
+                    SET full_name = ?, phone = ?, email = ?, address = ?, notes = ?
+                    WHERE id = ?
+                ''', (
+                    client_data['full_name'],
+                    client_data['phone'],
+                    client_data['email'],
+                    client_data['address'],
+                    client_data['notes'],
+                    client_id
+                ))
+                
+                conn.commit()
+                
+                # Логируем действие
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'UPDATE_CLIENT',
+                    'clients',
+                    client_id,
+                    old_values=dict(client),
+                    new_values=client_data
+                )
+                
+                messagebox.showinfo("Успех", "Данные клиента обновлены")
+                self.load_clients()
+                dialog.destroy()
+            except Exception as e:
+                conn.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось обновить данные: {e}")
+            finally:
+                conn.close()
+        
+        ttk.Button(dialog, text="Сохранить", command=save_changes).grid(
+            row=len(fields)+1, column=0, columnspan=2, pady=20
+        )
     
-    def create_orders_tab(self, notebook):
-        """Вкладка создания заказов"""
-        frame = ttk.Frame(notebook)
-        notebook.add(frame, text="Заказы")
+    def delete_client_dialog(self):
+        """Удаление клиента"""
+        selection = self.clients_tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите клиента для удаления")
+            return
         
-        # ... (реализация вкладки заказов)
+        item = self.clients_tree.item(selection[0])
+        client_id = item['values'][0]
+        client_name = item['values'][2]
+        
+        # Проверяем, есть ли у клиента заказы
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE client_id = ?", (client_id,))
+        order_count = cursor.fetchone()['count']
+        conn.close()
+        
+        if order_count > 0:
+            messagebox.showerror("Ошибка", 
+                f"Нельзя удалить клиента с существующими заказами ({order_count} заказов).\n"
+                "Сначала удалите или перепривяжите заказы.")
+            return
+        
+        if messagebox.askyesno("Подтверждение", 
+                               f"Вы уверены, что хотите удалить клиента '{client_name}'?\n"
+                               "Это действие нельзя отменить."):
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            try:
+                # Получаем старые данные для лога
+                cursor.execute("SELECT * FROM clients WHERE id = ?", (client_id,))
+                old_data = dict(cursor.fetchone())
+                
+                # Мягкое удаление (установка is_active = 0)
+                cursor.execute("UPDATE clients SET is_active = 0 WHERE id = ?", (client_id,))
+                conn.commit()
+                
+                # Логируем действие
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'DELETE_CLIENT',
+                    'clients',
+                    client_id,
+                    old_values=old_data
+                )
+                
+                messagebox.showinfo("Успех", "Клиент удален")
+                self.load_clients()
+            except Exception as e:
+                conn.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось удалить клиента: {e}")
+            finally:
+                conn.close()
     
-    def create_reports_tab(self, notebook):
-        """Вкладка отчетов"""
-        frame = ttk.Frame(notebook)
-        notebook.add(frame, text="Отчеты")
+    def export_clients_csv(self):
+        """Экспорт клиентов в CSV"""
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Сохранить клиентов как CSV"
+        )
         
-        # ... (реализация вкладки отчетов)
-    
-    def create_admin_tab(self, notebook):
-        """Вкладка администратора"""
-        frame = ttk.Frame(notebook)
-        notebook.add(frame, text="Администрирование")
+        if not file_path:
+            return
         
-        # ... (реализация админ-панели)
-    
-    def create_audit_tab(self, notebook):
-        """Вкладка аудита"""
-        frame = ttk.Frame(notebook)
-        notebook.add(frame, text="Аудит")
-        
-        # ... (реализация просмотра логов)
+        try:
+            clients = self.db.get_clients(limit=10000)  # Большой лимит для экспорта
+            
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['ID', 'Код', 'ФИО', 'Телефон', 'Email', 'Адрес', 'Дата регистрации', 'Согласие на обработку']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                
+                writer.writeheader()
+                for client in clients:
+                    writer.writerow({
+                        'ID': client['id'],
+                        'Код': client['client_code'],
+                        'ФИО': client['full_name'],
+                        'Телефон': client['phone'] or '',
+                        'Email': client['email'] or '',
+                        'Адрес': client['address'] or '',
+                        'Дата регистрации': client['registration_date'],
+                        'Согласие на обработку': 'Да' if client['personal_data_consent'] else 'Нет'
+                    })
+            
+            messagebox.showinfo("Успех", f"Клиенты экспортированы в {file_path}")
+            
+            # Логируем экспорт
+            self.db.log_audit(
+                self.current_user['id'],
+                'EXPORT_CLIENTS_CSV',
+                table_name='clients',
+                new_values={'file_path': file_path, 'count': len(clients)}
+            )
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось экспортировать данные: {e}")
     
     def search_clients(self):
         """Поиск клиентов"""
@@ -329,13 +543,14 @@ class TradingAppGUI:
         for item in self.clients_tree.get_children():
             self.clients_tree.delete(item)
         
-        clients = self.db.get_clients(limit=1000)  # Получаем больше записей для поиска
+        clients = self.db.get_clients(limit=1000)
         for client in clients:
             # Проверяем совпадение по разным полям
             if (search_term in client['full_name'].lower() or
                 search_term in (client['phone'] or '').lower() or
                 search_term in (client['email'] or '').lower() or
-                search_term in (client['client_code'] or '').lower()):
+                search_term in (client['client_code'] or '').lower() or
+                search_term in (client['address'] or '').lower()):
                 
                 self.clients_tree.insert('', tk.END, values=(
                     client['id'],
@@ -347,32 +562,2232 @@ class TradingAppGUI:
                     client['registration_date']
                 ))
     
-    def edit_client_dialog(self):
-        """Редактирование клиента"""
-        selection = self.clients_tree.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите клиента для редактирования")
-            return
-        
-        # Получаем ID клиента
-        item = self.clients_tree.item(selection[0])
-        client_id = item['values'][0]
-        
-        # ... (реализация формы редактирования)
+    def clear_client_search(self):
+        """Очистка поиска клиентов"""
+        self.client_search_entry.delete(0, tk.END)
+        self.load_clients()
     
-    def delete_client_dialog(self):
-        """Удаление клиента"""
-        selection = self.clients_tree.selection()
+    def create_products_tab(self):
+        """Вкладка управления товарами"""
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text="Товары")
+        
+        # Панель инструментов
+        toolbar = ttk.Frame(frame)
+        toolbar.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(toolbar, text="Добавить", command=self.add_product_dialog).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Редактировать", command=self.edit_product_dialog).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Удалить", command=self.delete_product_dialog, style='Danger.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Импорт CSV", command=self.import_products_csv).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Экспорт CSV", command=self.export_products_csv).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Обновить", command=self.load_products).pack(side=tk.LEFT, padx=2)
+        
+        # Фильтры
+        filter_frame = ttk.Frame(toolbar)
+        filter_frame.pack(side=tk.RIGHT)
+        
+        ttk.Label(filter_frame, text="Категория:").pack(side=tk.LEFT)
+        self.category_filter = ttk.Combobox(filter_frame, width=15, state='readonly')
+        self.category_filter.pack(side=tk.LEFT, padx=5)
+        self.category_filter.bind('<<ComboboxSelected>>', lambda e: self.load_products())
+        
+        ttk.Label(filter_frame, text="Поиск:").pack(side=tk.LEFT)
+        self.product_search_entry = ttk.Entry(filter_frame, width=20)
+        self.product_search_entry.pack(side=tk.LEFT, padx=5)
+        self.product_search_entry.bind('<KeyRelease>', lambda e: self.search_products())
+        
+        # Таблица товаров
+        columns = ("ID", "Артикул", "Название", "Категория", "Цена", "Кол-во", "Мин", "Макс", "Поставщик")
+        self.products_tree = ttk.Treeview(frame, columns=columns, show="headings", height=20)
+        
+        for col in columns:
+            self.products_tree.heading(col, text=col)
+            self.products_tree.column(col, width=80, minwidth=50)
+        
+        # Полоса прокрутки
+        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.products_tree.yview)
+        self.products_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.products_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Загружаем категории и данные
+        self.load_product_categories()
+        self.load_products()
+    
+    def load_product_categories(self):
+        """Загрузка списка категорий товаров"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT category FROM products WHERE category IS NOT NULL ORDER BY category")
+        categories = ['Все'] + [row['category'] for row in cursor.fetchall()]
+        conn.close()
+        
+        self.category_filter['values'] = categories
+        self.category_filter.set('Все')
+    
+    def load_products(self):
+        """Загрузка товаров из БД"""
+        if not hasattr(self, 'products_tree'):
+            return
+            
+        for item in self.products_tree.get_children():
+            self.products_tree.delete(item)
+        
+        category = None if self.category_filter.get() == 'Все' else self.category_filter.get()
+        
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        if category:
+            cursor.execute("SELECT * FROM products WHERE is_active = 1 AND category = ? ORDER BY name", (category,))
+        else:
+            cursor.execute("SELECT * FROM products WHERE is_active = 1 ORDER BY name")
+        
+        products = cursor.fetchall()
+        conn.close()
+        
+        for product in products:
+            self.products_tree.insert('', tk.END, values=(
+                product['id'],
+                product['sku'],
+                product['name'],
+                product['category'] or '',
+                f"{product['unit_price']:.2f}",
+                product['quantity'],
+                product['min_quantity'],
+                product['max_quantity'],
+                product['supplier'] or ''
+            ))
+            
+            # Подсветка товаров с низким запасом
+            if product['quantity'] < product['min_quantity']:
+                self.products_tree.item(self.products_tree.get_children()[-1], tags=('low_stock',))
+        
+        # Настройка тегов для подсветки
+        self.products_tree.tag_configure('low_stock', background='#ffcccc')
+    
+    def add_product_dialog(self):
+        """Диалог добавления товара"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Добавить товар")
+        dialog.geometry("500x600")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Поля формы
+        fields = [
+            ("Артикул*", "sku"),
+            ("Название*", "name"),
+            ("Категория", "category"),
+            ("Цена*", "unit_price"),
+            ("Начальное количество", "quantity"),
+            ("Мин. запас", "min_quantity"),
+            ("Макс. запас", "max_quantity"),
+            ("Поставщик", "supplier"),
+            ("Штрих-код", "barcode"),
+            ("Описание", "description")
+        ]
+        
+        entries = {}
+        
+        for i, (label_text, field_name) in enumerate(fields):
+            ttk.Label(dialog, text=label_text).grid(row=i, column=0, sticky=tk.W, padx=10, pady=5)
+            
+            if field_name == 'description':
+                entry = scrolledtext.ScrolledText(dialog, width=40, height=6)
+                entry.grid(row=i, column=1, padx=10, pady=5, sticky='nsew')
+            else:
+                entry = ttk.Entry(dialog, width=40)
+                entry.grid(row=i, column=1, padx=10, pady=5)
+            
+            # Устанавливаем значения по умолчанию
+            if field_name == 'min_quantity':
+                entry.insert(0, '10')
+            elif field_name == 'max_quantity':
+                entry.insert(0, '100')
+            elif field_name == 'quantity':
+                entry.insert(0, '0')
+            elif field_name == 'unit_price':
+                entry.insert(0, '0.00')
+            
+            entries[field_name] = entry
+        
+        def save_product():
+            product_data = {
+                'sku': entries['sku'].get().strip().upper(),
+                'name': entries['name'].get().strip(),
+                'category': entries['category'].get().strip(),
+                'unit_price': entries['unit_price'].get().strip(),
+                'quantity': entries['quantity'].get().strip(),
+                'min_quantity': entries['min_quantity'].get().strip(),
+                'max_quantity': entries['max_quantity'].get().strip(),
+                'supplier': entries['supplier'].get().strip(),
+                'barcode': entries['barcode'].get().strip(),
+                'description': entries['description'].get("1.0", tk.END).strip() if hasattr(entries['description'], 'get') 
+                              else entries['description'].get().strip()
+            }
+            
+            # Валидация
+            if not product_data['sku'] or not product_data['name']:
+                messagebox.showerror("Ошибка", "Артикул и название обязательны для заполнения")
+                return
+            
+            try:
+                product_data['unit_price'] = float(product_data['unit_price'])
+                product_data['quantity'] = int(product_data['quantity'])
+                product_data['min_quantity'] = int(product_data['min_quantity'])
+                product_data['max_quantity'] = int(product_data['max_quantity'])
+                
+                if product_data['unit_price'] < 0:
+                    raise ValueError("Цена не может быть отрицательной")
+                if product_data['quantity'] < 0:
+                    raise ValueError("Количество не может быть отрицательным")
+                
+            except ValueError as e:
+                messagebox.showerror("Ошибка", f"Неверный формат числа: {e}")
+                return
+            
+            # Сохраняем товар в БД
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    INSERT INTO products 
+                    (sku, name, description, category, unit_price, quantity, 
+                     min_quantity, max_quantity, supplier, barcode)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    product_data['sku'],
+                    product_data['name'],
+                    product_data['description'],
+                    product_data['category'],
+                    product_data['unit_price'],
+                    product_data['quantity'],
+                    product_data['min_quantity'],
+                    product_data['max_quantity'],
+                    product_data['supplier'],
+                    product_data['barcode']
+                ))
+                
+                product_id = cursor.lastrowid
+                conn.commit()
+                
+                # Логируем действие
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'CREATE_PRODUCT',
+                    'products',
+                    product_id,
+                    new_values=product_data
+                )
+                
+                messagebox.showinfo("Успех", "Товар успешно добавлен")
+                self.load_product_categories()
+                self.load_products()
+                dialog.destroy()
+            except sqlite3.IntegrityError:
+                messagebox.showerror("Ошибка", "Товар с таким артикулом уже существует")
+            except Exception as e:
+                conn.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось добавить товар: {e}")
+            finally:
+                conn.close()
+        
+        ttk.Button(dialog, text="Сохранить", command=save_product).grid(
+            row=len(fields)+1, column=0, columnspan=2, pady=20
+        )
+    
+    def edit_product_dialog(self):
+        """Редактирование товара"""
+        selection = self.products_tree.selection()
         if not selection:
-            messagebox.showwarning("Внимание", "Выберите клиента для удаления")
+            messagebox.showwarning("Внимание", "Выберите товар для редактирования")
             return
         
-        item = self.clients_tree.item(selection[0])
-        client_name = item['values'][2]
+        item = self.products_tree.item(selection[0])
+        product_id = item['values'][0]
         
-        if messagebox.askyesno("Подтверждение", f"Удалить клиента {client_name}?"):
-            # ... (реализация удаления)
-            self.load_clients()
+        # Получаем данные товара
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+        product = cursor.fetchone()
+        conn.close()
+        
+        if not product:
+            messagebox.showerror("Ошибка", "Товар не найден")
+            return
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Редактирование товара: {product['name']}")
+        dialog.geometry("500x600")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Поля формы
+        fields = [
+            ("Артикул*", "sku"),
+            ("Название*", "name"),
+            ("Категория", "category"),
+            ("Цена*", "unit_price"),
+            ("Количество", "quantity"),
+            ("Мин. запас", "min_quantity"),
+            ("Макс. запас", "max_quantity"),
+            ("Поставщик", "supplier"),
+            ("Штрих-код", "barcode"),
+            ("Описание", "description")
+        ]
+        
+        entries = {}
+        
+        for i, (label_text, field_name) in enumerate(fields):
+            ttk.Label(dialog, text=label_text).grid(row=i, column=0, sticky=tk.W, padx=10, pady=5)
+            
+            current_value = product[field_name] if product[field_name] is not None else ""
+            
+            if field_name == 'description':
+                entry = scrolledtext.ScrolledText(dialog, width=40, height=6)
+                entry.insert("1.0", current_value)
+                entry.grid(row=i, column=1, padx=10, pady=5, sticky='nsew')
+            else:
+                entry = ttk.Entry(dialog, width=40)
+                if field_name == 'unit_price':
+                    entry.insert(0, f"{current_value:.2f}")
+                else:
+                    entry.insert(0, str(current_value))
+                entry.grid(row=i, column=1, padx=10, pady=5)
+            
+            if field_name == 'sku':
+                entry.config(state='readonly')
+            
+            entries[field_name] = entry
+        
+        def save_changes():
+            product_data = {
+                'name': entries['name'].get().strip(),
+                'category': entries['category'].get().strip(),
+                'unit_price': entries['unit_price'].get().strip(),
+                'quantity': entries['quantity'].get().strip(),
+                'min_quantity': entries['min_quantity'].get().strip(),
+                'max_quantity': entries['max_quantity'].get().strip(),
+                'supplier': entries['supplier'].get().strip(),
+                'barcode': entries['barcode'].get().strip(),
+                'description': entries['description'].get("1.0", tk.END).strip()
+            }
+            
+            # Валидация
+            if not product_data['name']:
+                messagebox.showerror("Ошибка", "Название обязательно для заполнения")
+                return
+            
+            try:
+                product_data['unit_price'] = float(product_data['unit_price'])
+                product_data['quantity'] = int(product_data['quantity'])
+                product_data['min_quantity'] = int(product_data['min_quantity'])
+                product_data['max_quantity'] = int(product_data['max_quantity'])
+                
+                if product_data['unit_price'] < 0:
+                    raise ValueError("Цена не может быть отрицательной")
+                if product_data['quantity'] < 0:
+                    raise ValueError("Количество не может быть отрицательным")
+                
+            except ValueError as e:
+                messagebox.showerror("Ошибка", f"Неверный формат числа: {e}")
+                return
+            
+            # Обновляем данные в БД
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    UPDATE products 
+                    SET name = ?, description = ?, category = ?, unit_price = ?, 
+                        quantity = ?, min_quantity = ?, max_quantity = ?, 
+                        supplier = ?, barcode = ?, last_updated = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (
+                    product_data['name'],
+                    product_data['description'],
+                    product_data['category'],
+                    product_data['unit_price'],
+                    product_data['quantity'],
+                    product_data['min_quantity'],
+                    product_data['max_quantity'],
+                    product_data['supplier'],
+                    product_data['barcode'],
+                    product_id
+                ))
+                
+                conn.commit()
+                
+                # Логируем действие
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'UPDATE_PRODUCT',
+                    'products',
+                    product_id,
+                    old_values=dict(product),
+                    new_values=product_data
+                )
+                
+                messagebox.showinfo("Успех", "Данные товара обновлены")
+                self.load_product_categories()
+                self.load_products()
+                dialog.destroy()
+            except Exception as e:
+                conn.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось обновить данные: {e}")
+            finally:
+                conn.close()
+        
+        ttk.Button(dialog, text="Сохранить", command=save_changes).grid(
+            row=len(fields)+1, column=0, columnspan=2, pady=20
+        )
+    
+    def delete_product_dialog(self):
+        """Удаление товара"""
+        selection = self.products_tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите товар для удаления")
+            return
+        
+        item = self.products_tree.item(selection[0])
+        product_id = item['values'][0]
+        product_name = item['values'][2]
+        
+        # Проверяем, есть ли товар в заказах
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM order_items WHERE product_id = ?", (product_id,))
+        order_count = cursor.fetchone()['count']
+        conn.close()
+        
+        if order_count > 0:
+            messagebox.showerror("Ошибка", 
+                f"Нельзя удалить товар, который есть в заказах ({order_count} позиций).\n"
+                "Сначала удалите связанные заказы.")
+            return
+        
+        if messagebox.askyesno("Подтверждение", 
+                               f"Вы уверены, что хотите удалить товар '{product_name}'?\n"
+                               "Это действие нельзя отменить."):
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            try:
+                # Получаем старые данные для лога
+                cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+                old_data = dict(cursor.fetchone())
+                
+                # Мягкое удаление
+                cursor.execute("UPDATE products SET is_active = 0 WHERE id = ?", (product_id,))
+                conn.commit()
+                
+                # Логируем действие
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'DELETE_PRODUCT',
+                    'products',
+                    product_id,
+                    old_values=old_data
+                )
+                
+                messagebox.showinfo("Успех", "Товар удален")
+                self.load_product_categories()
+                self.load_products()
+            except Exception as e:
+                conn.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось удалить товар: {e}")
+            finally:
+                conn.close()
+    
+    def import_products_csv(self):
+        """Импорт товаров из CSV"""
+        file_path = filedialog.askopenfilename(
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Выберите CSV файл для импорта"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                imported = 0
+                errors = []
+                
+                conn = self.db.get_connection()
+                cursor = conn.cursor()
+                
+                for i, row in enumerate(reader, 1):
+                    try:
+                        # Преобразуем данные
+                        sku = row.get('Артикул', '').strip().upper()
+                        name = row.get('Название', '').strip()
+                        category = row.get('Категория', '').strip()
+                        unit_price = float(row.get('Цена', 0))
+                        quantity = int(row.get('Количество', 0))
+                        min_quantity = int(row.get('Мин_запас', 10))
+                        max_quantity = int(row.get('Макс_запас', 100))
+                        supplier = row.get('Поставщик', '').strip()
+                        barcode = row.get('Штрих-код', '').strip()
+                        description = row.get('Описание', '').strip()
+                        
+                        if not sku or not name:
+                            errors.append(f"Строка {i}: Отсутствует артикул или название")
+                            continue
+                        
+                        # Проверяем существование товара
+                        cursor.execute("SELECT id FROM products WHERE sku = ?", (sku,))
+                        existing = cursor.fetchone()
+                        
+                        if existing:
+                            # Обновляем существующий
+                            cursor.execute('''
+                                UPDATE products 
+                                SET name = ?, description = ?, category = ?, unit_price = ?, 
+                                    quantity = quantity + ?, min_quantity = ?, max_quantity = ?, 
+                                    supplier = ?, barcode = ?, last_updated = CURRENT_TIMESTAMP
+                                WHERE sku = ?
+                            ''', (
+                                name, description, category, unit_price, quantity,
+                                min_quantity, max_quantity, supplier, barcode, sku
+                            ))
+                        else:
+                            # Добавляем новый
+                            cursor.execute('''
+                                INSERT INTO products 
+                                (sku, name, description, category, unit_price, quantity, 
+                                 min_quantity, max_quantity, supplier, barcode)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', (
+                                sku, name, description, category, unit_price, quantity,
+                                min_quantity, max_quantity, supplier, barcode
+                            ))
+                        
+                        imported += 1
+                        
+                    except (ValueError, KeyError) as e:
+                        errors.append(f"Строка {i}: Ошибка данных - {e}")
+                
+                conn.commit()
+                conn.close()
+                
+                # Логируем импорт
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'IMPORT_PRODUCTS_CSV',
+                    table_name='products',
+                    new_values={'file_path': file_path, 'imported': imported, 'errors': len(errors)}
+                )
+                
+                message = f"Импорт завершен:\nУспешно: {imported}\nОшибок: {len(errors)}"
+                if errors:
+                    message += "\n\nПервые 5 ошибок:\n" + "\n".join(errors[:5])
+                
+                messagebox.showinfo("Результат импорта", message)
+                self.load_product_categories()
+                self.load_products()
+                
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось импортировать данные: {e}")
+    
+    def export_products_csv(self):
+        """Экспорт товаров в CSV"""
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Сохранить товары как CSV"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM products WHERE is_active = 1 ORDER BY name")
+            products = cursor.fetchall()
+            conn.close()
+            
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['Артикул', 'Название', 'Описание', 'Категория', 'Цена', 
+                             'Количество', 'Мин_запас', 'Макс_запас', 'Поставщик', 'Штрих-код']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                
+                writer.writeheader()
+                for product in products:
+                    writer.writerow({
+                        'Артикул': product['sku'],
+                        'Название': product['name'],
+                        'Описание': product['description'] or '',
+                        'Категория': product['category'] or '',
+                        'Цена': f"{product['unit_price']:.2f}",
+                        'Количество': product['quantity'],
+                        'Мин_запас': product['min_quantity'],
+                        'Макс_запас': product['max_quantity'],
+                        'Поставщик': product['supplier'] or '',
+                        'Штрих-код': product['barcode'] or ''
+                    })
+            
+            messagebox.showinfo("Успех", f"Товары экспортированы в {file_path}")
+            
+            # Логируем экспорт
+            self.db.log_audit(
+                self.current_user['id'],
+                'EXPORT_PRODUCTS_CSV',
+                table_name='products',
+                new_values={'file_path': file_path, 'count': len(products)}
+            )
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось экспортировать данные: {e}")
+    
+    def search_products(self):
+        """Поиск товаров"""
+        search_term = self.product_search_entry.get().strip().lower()
+        if not search_term:
+            self.load_products()
+            return
+        
+        for item in self.products_tree.get_children():
+            self.products_tree.delete(item)
+        
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        category = None if self.category_filter.get() == 'Все' else self.category_filter.get()
+        
+        if category:
+            cursor.execute("SELECT * FROM products WHERE is_active = 1 AND category = ? ORDER BY name", (category,))
+        else:
+            cursor.execute("SELECT * FROM products WHERE is_active = 1 ORDER BY name")
+        
+        products = cursor.fetchall()
+        conn.close()
+        
+        for product in products:
+            if (search_term in product['name'].lower() or
+                search_term in (product['sku'] or '').lower() or
+                search_term in (product['description'] or '').lower() or
+                search_term in (product['supplier'] or '').lower() or
+                search_term in (product['category'] or '').lower()):
+                
+                self.products_tree.insert('', tk.END, values=(
+                    product['id'],
+                    product['sku'],
+                    product['name'],
+                    product['category'] or '',
+                    f"{product['unit_price']:.2f}",
+                    product['quantity'],
+                    product['min_quantity'],
+                    product['max_quantity'],
+                    product['supplier'] or ''
+                ))
+    
+    def create_orders_tab(self):
+        """Вкладка создания заказов"""
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text="Заказы")
+        
+        # Разделяем окно на две части
+        paned_window = ttk.PanedWindow(frame, orient=tk.HORIZONTAL)
+        paned_window.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Левая панель - создание заказа
+        left_frame = ttk.Frame(paned_window)
+        paned_window.add(left_frame, weight=1)
+        
+        # Правая панель - список заказов
+        right_frame = ttk.Frame(paned_window)
+        paned_window.add(right_frame, weight=1)
+        
+        # Левая панель: форма создания заказа
+        ttk.Label(left_frame, text="Новый заказ", style='Heading.TLabel').pack(anchor=tk.W, padx=5, pady=5)
+        
+        # Выбор клиента
+        client_frame = ttk.LabelFrame(left_frame, text="Клиент", padding=10)
+        client_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(client_frame, text="Поиск клиента:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.client_search_combo = ttk.Combobox(client_frame, width=30, state='normal')
+        self.client_search_combo.grid(row=0, column=1, padx=5, pady=5)
+        
+        # Загружаем список клиентов для автодополнения
+        self.load_clients_for_combo()
+        
+        ttk.Button(client_frame, text="Новый клиент", command=self.add_client_for_order).grid(row=0, column=2, padx=5)
+        
+        # Информация о выбранном клиенте
+        self.selected_client_info = ttk.Label(client_frame, text="Клиент не выбран", foreground='gray')
+        self.selected_client_info.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=5)
+        self.selected_client_id = None
+        
+        # Список товаров в заказе
+        items_frame = ttk.LabelFrame(left_frame, text="Товары в заказе", padding=10)
+        items_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Таблица товаров в заказе
+        columns = ("Товар", "Кол-во", "Цена", "Сумма")
+        self.order_items_tree = ttk.Treeview(items_frame, columns=columns, show="headings", height=8)
+        
+        for col in columns:
+            self.order_items_tree.heading(col, text=col)
+            self.order_items_tree.column(col, width=100)
+        
+        scrollbar = ttk.Scrollbar(items_frame, orient=tk.VERTICAL, command=self.order_items_tree.yview)
+        self.order_items_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.order_items_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Панель добавления товара
+        add_item_frame = ttk.Frame(items_frame)
+        add_item_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(add_item_frame, text="Товар:").pack(side=tk.LEFT, padx=2)
+        self.product_combo = ttk.Combobox(add_item_frame, width=25, state='readonly')
+        self.product_combo.pack(side=tk.LEFT, padx=2)
+        
+        ttk.Label(add_item_frame, text="Кол-во:").pack(side=tk.LEFT, padx=2)
+        self.quantity_spinbox = tk.Spinbox(add_item_frame, from_=1, to=1000, width=10)
+        self.quantity_spinbox.pack(side=tk.LEFT, padx=2)
+        
+        ttk.Button(add_item_frame, text="Добавить", command=self.add_item_to_order).pack(side=tk.LEFT, padx=5)
+        ttk.Button(add_item_frame, text="Удалить", command=self.remove_item_from_order, style='Danger.TButton').pack(side=tk.LEFT)
+        
+        # Загружаем список товаров
+        self.load_products_for_combo()
+        
+        # Итого
+        total_frame = ttk.Frame(left_frame)
+        total_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.total_label = ttk.Label(total_frame, text="Итого: 0.00 руб.", font=('Arial', 12, 'bold'))
+        self.total_label.pack(side=tk.RIGHT)
+        
+        # Примечания
+        notes_frame = ttk.LabelFrame(left_frame, text="Примечания", padding=10)
+        notes_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.order_notes_text = scrolledtext.ScrolledText(notes_frame, height=4)
+        self.order_notes_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Кнопки создания заказа
+        button_frame = ttk.Frame(left_frame)
+        button_frame.pack(fill=tk.X, padx=5, pady=10)
+        
+        ttk.Button(button_frame, text="Создать заказ", command=self.create_order).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(button_frame, text="Очистить форму", command=self.clear_order_form).pack(side=tk.RIGHT)
+        
+        # Правая панель: список заказов
+        ttk.Label(right_frame, text="История заказов", style='Heading.TLabel').pack(anchor=tk.W, padx=5, pady=5)
+        
+        # Панель инструментов для заказов
+        orders_toolbar = ttk.Frame(right_frame)
+        orders_toolbar.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(orders_toolbar, text="Обновить", command=self.load_orders).pack(side=tk.LEFT, padx=2)
+        ttk.Button(orders_toolbar, text="Просмотр", command=self.view_order_details).pack(side=tk.LEFT, padx=2)
+        ttk.Button(orders_toolbar, text="Отменить", command=self.cancel_order, style='Warning.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(orders_toolbar, text="Завершить", command=self.complete_order, style='Success.TButton').pack(side=tk.LEFT, padx=2)
+        
+        # Фильтры заказов
+        filter_frame = ttk.Frame(orders_toolbar)
+        filter_frame.pack(side=tk.RIGHT)
+        
+        ttk.Label(filter_frame, text="Статус:").pack(side=tk.LEFT)
+        self.order_status_filter = ttk.Combobox(filter_frame, values=['Все', 'pending', 'processing', 'completed', 'cancelled'], width=12)
+        self.order_status_filter.pack(side=tk.LEFT, padx=5)
+        self.order_status_filter.set('Все')
+        self.order_status_filter.bind('<<ComboboxSelected>>', lambda e: self.load_orders())
+        
+        # Таблица заказов
+        columns = ("ID", "Номер", "Клиент", "Сумма", "Статус", "Дата")
+        self.orders_tree = ttk.Treeview(right_frame, columns=columns, show="headings", height=20)
+        
+        for col in columns:
+            self.orders_tree.heading(col, text=col)
+            self.orders_tree.column(col, width=100, minwidth=50)
+        
+        orders_scrollbar = ttk.Scrollbar(right_frame, orient=tk.VERTICAL, command=self.orders_tree.yview)
+        self.orders_tree.configure(yscrollcommand=orders_scrollbar.set)
+        
+        self.orders_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        orders_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Загружаем заказы
+        self.load_orders()
+    
+    def load_clients_for_combo(self):
+        """Загрузка клиентов для автодополнения"""
+        clients = self.db.get_clients(limit=1000)
+        client_names = [f"{c['full_name']} ({c['phone'] or 'нет телефона'})" for c in clients]
+        self.client_search_combo['values'] = client_names
+        
+        # Настраиваем автодополнение
+        def autocomplete(event):
+            typed = self.client_search_combo.get().lower()
+            if not typed:
+                return
+            
+            matching = [name for name in client_names if typed in name.lower()]
+            if matching:
+                self.client_search_combo['values'] = matching
+        
+        self.client_search_combo.bind('<KeyRelease>', autocomplete)
+    
+    def load_products_for_combo(self):
+        """Загрузка товаров для выпадающего списка"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, sku, name, unit_price, quantity FROM products WHERE is_active = 1 AND quantity > 0 ORDER BY name")
+        products = cursor.fetchall()
+        conn.close()
+        
+        self.products_list = []
+        product_names = []
+        for product in products:
+            display = f"{product['name']} ({product['sku']}) - {product['unit_price']:.2f} руб. (остаток: {product['quantity']})"
+            product_names.append(display)
+            self.products_list.append({
+                'id': product['id'],
+                'sku': product['sku'],
+                'name': product['name'],
+                'price': product['unit_price'],
+                'quantity': product['quantity']
+            })
+        
+        self.product_combo['values'] = product_names
+    
+    def add_client_for_order(self):
+        """Добавление нового клиента из формы заказа"""
+        self.add_client_dialog()
+        # После добавления обновляем список клиентов
+        self.load_clients_for_combo()
+    
+    def add_item_to_order(self):
+        """Добавление товара в заказ"""
+        selected = self.product_combo.current()
+        if selected == -1:
+            messagebox.showwarning("Внимание", "Выберите товар")
+            return
+        
+        try:
+            quantity = int(self.quantity_spinbox.get())
+            if quantity <= 0:
+                messagebox.showerror("Ошибка", "Количество должно быть положительным")
+                return
+        except ValueError:
+            messagebox.showerror("Ошибка", "Введите корректное количество")
+            return
+        
+        product = self.products_list[selected]
+        
+        # Проверяем доступное количество
+        if quantity > product['quantity']:
+            messagebox.showerror("Ошибка", 
+                f"Недостаточно товара на складе. Доступно: {product['quantity']}")
+            return
+        
+        # Добавляем в таблицу
+        total = product['price'] * quantity
+        self.order_items_tree.insert('', tk.END, values=(
+            product['name'],
+            quantity,
+            f"{product['price']:.2f}",
+            f"{total:.2f}"
+        ), tags=(str(product['id']),))
+        
+        # Обновляем итого
+        self.update_order_total()
+    
+    def remove_item_from_order(self):
+        """Удаление товара из заказа"""
+        selection = self.order_items_tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите товар для удаления")
+            return
+        
+        for item in selection:
+            self.order_items_tree.delete(item)
+        
+        self.update_order_total()
+    
+    def update_order_total(self):
+        """Обновление общей суммы заказа"""
+        total = 0.0
+        for item in self.order_items_tree.get_children():
+            values = self.order_items_tree.item(item)['values']
+            if len(values) >= 4:
+                try:
+                    total += float(values[3])
+                except ValueError:
+                    pass
+        
+        self.total_label.config(text=f"Итого: {total:.2f} руб.")
+    
+    def clear_order_form(self):
+        """Очистка формы заказа"""
+        self.selected_client_id = None
+        self.selected_client_info.config(text="Клиент не выбран", foreground='gray')
+        self.client_search_combo.set('')
+        
+        for item in self.order_items_tree.get_children():
+            self.order_items_tree.delete(item)
+        
+        self.order_notes_text.delete("1.0", tk.END)
+        self.update_order_total()
+    
+    def create_order(self):
+        """Создание нового заказа"""
+        # Проверяем клиента
+        if not self.selected_client_id:
+            messagebox.showerror("Ошибка", "Выберите клиента")
+            return
+        
+        # Проверяем товары
+        items = []
+        for item in self.order_items_tree.get_children():
+            values = self.order_items_tree.item(item)['values']
+            tags = self.order_items_tree.item(item)['tags']
+            if tags:
+                product_id = int(tags[0])
+                quantity = int(values[1])
+                items.append({
+                    'product_id': product_id,
+                    'quantity': quantity
+                })
+        
+        if not items:
+            messagebox.showerror("Ошибка", "Добавьте хотя бы один товар в заказ")
+            return
+        
+        # Создаем заказ
+        order_data = {
+            'client_id': self.selected_client_id,
+            'items': items,
+            'notes': self.order_notes_text.get("1.0", tk.END).strip()
+        }
+        
+        order_id = self.db.create_order(order_data, self.current_user['id'])
+        if order_id:
+            messagebox.showinfo("Успех", f"Заказ №{order_id} успешно создан")
+            self.clear_order_form()
+            self.load_orders()
+            self.load_products_for_combo()  # Обновляем остатки товаров
+        else:
+            messagebox.showerror("Ошибка", "Не удалось создать заказ")
+    
+    def load_orders(self):
+        """Загрузка заказов из БД"""
+        if not hasattr(self, 'orders_tree'):
+            return
+            
+        for item in self.orders_tree.get_children():
+            self.orders_tree.delete(item)
+        
+        status_filter = None if self.order_status_filter.get() == 'Все' else self.order_status_filter.get()
+        
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        if status_filter:
+            cursor.execute('''
+                SELECT o.*, c.full_name as client_name 
+                FROM orders o
+                LEFT JOIN clients c ON o.client_id = c.id
+                WHERE o.status = ?
+                ORDER BY o.created_at DESC
+                LIMIT 100
+            ''', (status_filter,))
+        else:
+            cursor.execute('''
+                SELECT o.*, c.full_name as client_name 
+                FROM orders o
+                LEFT JOIN clients c ON o.client_id = c.id
+                ORDER BY o.created_at DESC
+                LIMIT 100
+            ''')
+        
+        orders = cursor.fetchall()
+        conn.close()
+        
+        for order in orders:
+            client_name = order['client_name'] or 'Без клиента'
+            
+            # Цвет в зависимости от статуса
+            tags = ()
+            if order['status'] == 'completed':
+                tags = ('completed',)
+            elif order['status'] == 'cancelled':
+                tags = ('cancelled',)
+            elif order['status'] == 'processing':
+                tags = ('processing',)
+            
+            self.orders_tree.insert('', tk.END, values=(
+                order['id'],
+                order['order_number'],
+                client_name,
+                f"{order['total_amount']:.2f}",
+                order['status'],
+                order['created_at']
+            ), tags=tags)
+        
+        # Настройка цветов
+        self.orders_tree.tag_configure('completed', background='#d4edda')
+        self.orders_tree.tag_configure('cancelled', background='#f8d7da')
+        self.orders_tree.tag_configure('processing', background='#fff3cd')
+    
+    def view_order_details(self):
+        """Просмотр деталей заказа"""
+        selection = self.orders_tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите заказ для просмотра")
+            return
+        
+        item = self.orders_tree.item(selection[0])
+        order_id = item['values'][0]
+        
+        # Получаем детали заказа
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        # Информация о заказе
+        cursor.execute('''
+            SELECT o.*, c.full_name as client_name, c.phone, c.email,
+                   e.full_name as employee_name
+            FROM orders o
+            LEFT JOIN clients c ON o.client_id = c.id
+            LEFT JOIN employees e ON o.employee_id = e.id
+            WHERE o.id = ?
+        ''', (order_id,))
+        
+        order = cursor.fetchone()
+        
+        # Товары в заказе
+        cursor.execute('''
+            SELECT oi.*, p.name, p.sku
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id = ?
+        ''', (order_id,))
+        
+        items = cursor.fetchall()
+        conn.close()
+        
+        # Создаем диалоговое окно
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Детали заказа №{order['order_number']}")
+        dialog.geometry("700x500")
+        dialog.transient(self.root)
+        
+        # Информация о заказе
+        info_frame = ttk.LabelFrame(dialog, text="Информация о заказе", padding=10)
+        info_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        info_text = f"""
+Номер заказа: {order['order_number']}
+Дата создания: {order['created_at']}
+Статус: {order['status']}
+Общая сумма: {order['total_amount']:.2f} руб.
+
+Клиент: {order['client_name'] or 'Не указан'}
+Телефон: {order['phone'] or 'Не указан'}
+Email: {order['email'] or 'Не указан'}
+
+Сотрудник: {order['employee_name']}
+
+Примечания: {order['notes'] or 'Нет'}
+"""
+        
+        info_label = ttk.Label(info_frame, text=info_text, justify=tk.LEFT)
+        info_label.pack(anchor=tk.W)
+        
+        # Товары в заказе
+        items_frame = ttk.LabelFrame(dialog, text="Товары в заказе", padding=10)
+        items_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Таблица товаров
+        columns = ("Товар", "Артикул", "Кол-во", "Цена", "Сумма")
+        items_tree = ttk.Treeview(items_frame, columns=columns, show="headings", height=8)
+        
+        for col in columns:
+            items_tree.heading(col, text=col)
+            items_tree.column(col, width=120)
+        
+        scrollbar = ttk.Scrollbar(items_frame, orient=tk.VERTICAL, command=items_tree.yview)
+        items_tree.configure(yscrollcommand=scrollbar.set)
+        
+        items_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Заполняем таблицу
+        for item in items:
+            items_tree.insert('', tk.END, values=(
+                item['name'],
+                item['sku'],
+                item['quantity'],
+                f"{item['unit_price']:.2f}",
+                f"{item['total_price']:.2f}"
+            ))
+        
+        # Кнопки
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        if order['status'] == 'pending' and self.auth.has_permission(self.current_user['role'], 'cashier'):
+            ttk.Button(button_frame, text="В обработку", 
+                      command=lambda: self.update_order_status(order_id, 'processing')).pack(side=tk.LEFT, padx=5)
+        
+        if order['status'] == 'processing' and self.auth.has_permission(self.current_user['role'], 'cashier'):
+            ttk.Button(button_frame, text="Завершить", style='Success.TButton',
+                      command=lambda: self.update_order_status(order_id, 'completed')).pack(side=tk.LEFT, padx=5)
+        
+        if order['status'] in ['pending', 'processing'] and self.auth.has_permission(self.current_user['role'], 'manager'):
+            ttk.Button(button_frame, text="Отменить", style='Danger.TButton',
+                      command=lambda: self.update_order_status(order_id, 'cancelled')).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(button_frame, text="Закрыть", command=dialog.destroy).pack(side=tk.RIGHT)
+    
+    def update_order_status(self, order_id, new_status):
+        """Обновление статуса заказа"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Получаем текущий статус и данные
+            cursor.execute("SELECT status, total_amount FROM orders WHERE id = ?", (order_id,))
+            order = cursor.fetchone()
+            
+            if not order:
+                messagebox.showerror("Ошибка", "Заказ не найден")
+                return
+            
+            # Обновляем статус
+            cursor.execute('''
+                UPDATE orders 
+                SET status = ?, 
+                    completed_at = CASE WHEN ? = 'completed' THEN CURRENT_TIMESTAMP ELSE completed_at END
+                WHERE id = ?
+            ''', (new_status, new_status, order_id))
+            
+            conn.commit()
+            
+            # Логируем действие
+            self.db.log_audit(
+                self.current_user['id'],
+                f'UPDATE_ORDER_STATUS',
+                'orders',
+                order_id,
+                old_values={'status': order['status']},
+                new_values={'status': new_status}
+            )
+            
+            messagebox.showinfo("Успех", f"Статус заказа обновлен на '{new_status}'")
+            
+            # Если отмена заказа, возвращаем товары на склад
+            if new_status == 'cancelled' and order['status'] != 'cancelled':
+                self.return_order_items_to_stock(order_id)
+            
+            # Обновляем список заказов
+            self.load_orders()
+            
+        except Exception as e:
+            conn.rollback()
+            messagebox.showerror("Ошибка", f"Не удалось обновить статус: {e}")
+        finally:
+            conn.close()
+    
+    def return_order_items_to_stock(self, order_id):
+        """Возврат товаров на склад при отмене заказа"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Получаем товары из заказа
+            cursor.execute("SELECT product_id, quantity FROM order_items WHERE order_id = ?", (order_id,))
+            items = cursor.fetchall()
+            
+            # Возвращаем каждый товар на склад
+            for item in items:
+                cursor.execute('''
+                    UPDATE products 
+                    SET quantity = quantity + ?, 
+                        last_updated = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (item['quantity'], item['product_id']))
+            
+            conn.commit()
+            
+        except Exception as e:
+            conn.rollback()
+            print(f"Ошибка при возврате товаров: {e}")
+        finally:
+            conn.close()
+    
+    def cancel_order(self):
+        """Отмена заказа"""
+        selection = self.orders_tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите заказ для отмены")
+            return
+        
+        item = self.orders_tree.item(selection[0])
+        order_id = item['values'][0]
+        order_status = item['values'][4]
+        
+        if order_status in ['completed', 'cancelled']:
+            messagebox.showwarning("Внимание", "Нельзя отменить завершенный или уже отмененный заказ")
+            return
+        
+        if messagebox.askyesno("Подтверждение", 
+                               f"Вы уверены, что хотите отменить заказ №{item['values'][1]}?\n"
+                               "Товары будут возвращены на склад."):
+            self.update_order_status(order_id, 'cancelled')
+    
+    def complete_order(self):
+        """Завершение заказа"""
+        selection = self.orders_tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите заказ для завершения")
+            return
+        
+        item = self.orders_tree.item(selection[0])
+        order_id = item['values'][0]
+        order_status = item['values'][4]
+        
+        if order_status != 'processing':
+            messagebox.showwarning("Внимание", "Можно завершить только заказы в статусе 'processing'")
+            return
+        
+        if messagebox.askyesno("Подтверждение", 
+                               f"Вы уверены, что хотите завершить заказ №{item['values'][1]}?"):
+            self.update_order_status(order_id, 'completed')
+    
+    def create_reports_tab(self):
+        """Вкладка отчетов"""
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text="Отчеты")
+        
+        # Панель инструментов
+        toolbar = ttk.Frame(frame)
+        toolbar.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(toolbar, text="Продажи за сегодня", command=self.generate_today_sales_report).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Продажи за месяц", command=self.generate_monthly_sales_report).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Товарный отчет", command=self.generate_inventory_report).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Клиентский отчет", command=self.generate_client_report).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Экспорт в PDF", command=self.export_report_pdf).pack(side=tk.LEFT, padx=2)
+        
+        # Область отчета
+        report_frame = ttk.LabelFrame(frame, text="Отчет", padding=10)
+        report_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        self.report_text = scrolledtext.ScrolledText(report_frame, height=25, wrap=tk.WORD)
+        self.report_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Статистика внизу
+        stats_frame = ttk.Frame(frame)
+        stats_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.stats_label = ttk.Label(stats_frame, text="Выберите отчет для генерации", font=('Arial', 10))
+        self.stats_label.pack()
+    
+    def generate_today_sales_report(self):
+        """Генерация отчета по продажам за сегодня"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as order_count,
+                SUM(total_amount) as total_sales,
+                AVG(total_amount) as avg_order
+            FROM orders 
+            WHERE DATE(created_at) = DATE('now') 
+                AND status = 'completed'
+        ''')
+        
+        stats = cursor.fetchone()
+        
+        cursor.execute('''
+            SELECT 
+                o.order_number,
+                c.full_name as client_name,
+                o.total_amount,
+                o.created_at,
+                COUNT(oi.id) as item_count
+            FROM orders o
+            LEFT JOIN clients c ON o.client_id = c.id
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            WHERE DATE(o.created_at) = DATE('now') 
+                AND o.status = 'completed'
+            GROUP BY o.id
+            ORDER BY o.created_at DESC
+        ''')
+        
+        orders = cursor.fetchall()
+        conn.close()
+        
+        report = "=" * 60 + "\n"
+        report += "ОТЧЕТ О ПРОДАЖАХ ЗА СЕГОДНЯ\n"
+        report += "=" * 60 + "\n\n"
+        
+        report += f"Всего заказов: {stats['order_count'] or 0}\n"
+        report += f"Общая сумма продаж: {stats['total_sales'] or 0:.2f} руб.\n"
+        report += f"Средний чек: {stats['avg_order'] or 0:.2f} руб.\n\n"
+        
+        report += "ДЕТАЛИ ЗАКАЗОВ:\n"
+        report += "-" * 60 + "\n"
+        
+        for order in orders:
+            report += f"Заказ: {order['order_number']}\n"
+            report += f"Клиент: {order['client_name'] or 'Без клиента'}\n"
+            report += f"Сумма: {order['total_amount']:.2f} руб.\n"
+            report += f"Товаров: {order['item_count']}\n"
+            report += f"Время: {order['created_at']}\n"
+            report += "-" * 40 + "\n"
+        
+        self.report_text.delete("1.0", tk.END)
+        self.report_text.insert("1.0", report)
+        
+        self.stats_label.config(text=f"Отчет сгенерирован: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Логируем генерацию отчета
+        self.db.log_audit(
+            self.current_user['id'],
+            'GENERATE_TODAY_SALES_REPORT',
+            new_values={'order_count': stats['order_count'] or 0, 'total_sales': stats['total_sales'] or 0}
+        )
+    
+    def generate_monthly_sales_report(self):
+        """Генерация отчета по продажам за месяц"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT 
+                strftime('%Y-%m', created_at) as month,
+                COUNT(*) as order_count,
+                SUM(total_amount) as total_sales,
+                AVG(total_amount) as avg_order
+            FROM orders 
+            WHERE status = 'completed'
+                AND created_at >= date('now', '-6 months')
+            GROUP BY strftime('%Y-%m', created_at)
+            ORDER BY month DESC
+        ''')
+        
+        monthly_stats = cursor.fetchall()
+        
+        cursor.execute('''
+            SELECT 
+                p.name,
+                p.sku,
+                p.category,
+                SUM(oi.quantity) as total_sold,
+                SUM(oi.total_price) as total_revenue
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            JOIN orders o ON oi.order_id = o.id
+            WHERE o.status = 'completed'
+                AND o.created_at >= date('now', '-30 days')
+            GROUP BY p.id
+            ORDER BY total_revenue DESC
+            LIMIT 10
+        ''')
+        
+        top_products = cursor.fetchall()
+        conn.close()
+        
+        report = "=" * 60 + "\n"
+        report += "ОТЧЕТ О ПРОДАЖАХ ЗА ПОСЛЕДНИЕ 6 МЕСЯЦЕВ\n"
+        report += "=" * 60 + "\n\n"
+        
+        report += "МЕСЯЧНАЯ СТАТИСТИКА:\n"
+        report += "-" * 60 + "\n"
+        
+        total_orders = 0
+        total_sales = 0
+        
+        for stat in monthly_stats:
+            report += f"Месяц: {stat['month']}\n"
+            report += f"  Заказов: {stat['order_count']}\n"
+            report += f"  Продажи: {stat['total_sales']:.2f} руб.\n"
+            report += f"  Средний чек: {stat['avg_order']:.2f} руб.\n"
+            report += "-" * 40 + "\n"
+            
+            total_orders += stat['order_count']
+            total_sales += stat['total_sales'] or 0
+        
+        report += f"\nИТОГО за 6 месяцев:\n"
+        report += f"Заказов: {total_orders}\n"
+        report += f"Продажи: {total_sales:.2f} руб.\n"
+        report += f"Среднемесячные продажи: {total_sales / len(monthly_stats) if monthly_stats else 0:.2f} руб.\n\n"
+        
+        report += "ТОП-10 ТОВАРОВ ЗА ПОСЛЕДНИЙ МЕСЯЦ:\n"
+        report += "-" * 60 + "\n"
+        
+        for product in top_products:
+            report += f"Товар: {product['name']}\n"
+            report += f"  Артикул: {product['sku']}\n"
+            report += f"  Категория: {product['category'] or 'Без категории'}\n"
+            report += f"  Продано: {product['total_sold']} шт.\n"
+            report += f"  Выручка: {product['total_revenue']:.2f} руб.\n"
+            report += "-" * 40 + "\n"
+        
+        self.report_text.delete("1.0", tk.END)
+        self.report_text.insert("1.0", report)
+        
+        self.stats_label.config(text=f"Отчет сгенерирован: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Логируем генерацию отчета
+        self.db.log_audit(
+            self.current_user['id'],
+            'GENERATE_MONTHLY_SALES_REPORT',
+            new_values={'total_orders': total_orders, 'total_sales': total_sales}
+        )
+    
+    def generate_inventory_report(self):
+        """Генерация товарного отчета"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        # Статистика по товарам
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total_products,
+                SUM(quantity) as total_stock,
+                SUM(unit_price * quantity) as total_value,
+                AVG(unit_price) as avg_price
+            FROM products 
+            WHERE is_active = 1
+        ''')
+        
+        stats = cursor.fetchone()
+        
+        # Товары с низким запасом
+        cursor.execute('''
+            SELECT 
+                name,
+                sku,
+                category,
+                quantity,
+                min_quantity,
+                unit_price,
+                (min_quantity - quantity) as deficit
+            FROM products 
+            WHERE is_active = 1 
+                AND quantity < min_quantity
+            ORDER BY deficit DESC
+            LIMIT 20
+        ''')
+        
+        low_stock = cursor.fetchall()
+        
+        # Самые дорогие товары
+        cursor.execute('''
+            SELECT 
+                name,
+                sku,
+                category,
+                quantity,
+                unit_price,
+                (unit_price * quantity) as stock_value
+            FROM products 
+            WHERE is_active = 1
+            ORDER BY stock_value DESC
+            LIMIT 10
+        ''')
+        
+        valuable = cursor.fetchall()
+        conn.close()
+        
+        report = "=" * 60 + "\n"
+        report += "ТОВАРНЫЙ ОТЧЕТ\n"
+        report += "=" * 60 + "\n\n"
+        
+        report += "ОБЩАЯ СТАТИСТИКА:\n"
+        report += "-" * 60 + "\n"
+        report += f"Всего товаров: {stats['total_products'] or 0}\n"
+        report += f"Общее количество на складе: {stats['total_stock'] or 0} шт.\n"
+        report += f"Общая стоимость запасов: {stats['total_value'] or 0:.2f} руб.\n"
+        report += f"Средняя цена товара: {stats['avg_price'] or 0:.2f} руб.\n\n"
+        
+        report += "ТОВАРЫ С НИЗКИМ ЗАПАСОМ:\n"
+        report += "-" * 60 + "\n"
+        
+        if low_stock:
+            for product in low_stock:
+                report += f"Товар: {product['name']}\n"
+                report += f"  Артикул: {product['sku']}\n"
+                report += f"  На складе: {product['quantity']} шт. (мин: {product['min_quantity']})\n"
+                report += f"  Дефицит: {product['deficit']} шт.\n"
+                report += f"  Цена: {product['unit_price']:.2f} руб.\n"
+                report += "-" * 40 + "\n"
+        else:
+            report += "Нет товаров с низким запасом\n\n"
+        
+        report += "САМЫЕ ЦЕННЫЕ ЗАПАСЫ:\n"
+        report += "-" * 60 + "\n"
+        
+        for product in valuable:
+            report += f"Товар: {product['name']}\n"
+            report += f"  Артикул: {product['sku']}\n"
+            report += f"  Категория: {product['category'] or 'Без категории'}\n"
+            report += f"  Количество: {product['quantity']} шт.\n"
+            report += f"  Цена за единицу: {product['unit_price']:.2f} руб.\n"
+            report += f"  Стоимость запаса: {product['stock_value']:.2f} руб.\n"
+            report += "-" * 40 + "\n"
+        
+        self.report_text.delete("1.0", tk.END)
+        self.report_text.insert("1.0", report)
+        
+        self.stats_label.config(text=f"Отчет сгенерирован: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Логируем генерацию отчета
+        self.db.log_audit(
+            self.current_user['id'],
+            'GENERATE_INVENTORY_REPORT',
+            new_values={'total_products': stats['total_products'] or 0, 'total_value': stats['total_value'] or 0}
+        )
+    
+    def generate_client_report(self):
+        """Генерация клиентского отчета"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        # Статистика по клиентам
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total_clients,
+                COUNT(CASE WHEN personal_data_consent = 1 THEN 1 END) as consented_clients,
+                COUNT(CASE WHEN DATE(registration_date) = DATE('now') THEN 1 END) as new_today
+            FROM clients 
+            WHERE is_active = 1
+        ''')
+        
+        stats = cursor.fetchone()
+        
+        # Самые активные клиенты
+        cursor.execute('''
+            SELECT 
+                c.full_name,
+                c.phone,
+                c.email,
+                COUNT(o.id) as order_count,
+                SUM(o.total_amount) as total_spent,
+                MAX(o.created_at) as last_order_date
+            FROM clients c
+            LEFT JOIN orders o ON c.id = o.client_id
+            WHERE c.is_active = 1
+                AND o.status = 'completed'
+            GROUP BY c.id
+            HAVING order_count > 0
+            ORDER BY total_spent DESC
+            LIMIT 10
+        ''')
+        
+        top_clients = cursor.fetchall()
+        
+        # Новые клиенты за месяц
+        cursor.execute('''
+            SELECT 
+                full_name,
+                phone,
+                email,
+                registration_date
+            FROM clients 
+            WHERE is_active = 1
+                AND registration_date >= date('now', '-30 days')
+            ORDER BY registration_date DESC
+            LIMIT 10
+        ''')
+        
+        new_clients = cursor.fetchall()
+        conn.close()
+        
+        report = "=" * 60 + "\n"
+        report += "КЛИЕНТСКИЙ ОТЧЕТ\n"
+        report += "=" * 60 + "\n\n"
+        
+        report += "ОБЩАЯ СТАТИСТИКА:\n"
+        report += "-" * 60 + "\n"
+        report += f"Всего клиентов: {stats['total_clients'] or 0}\n"
+        report += f"С согласием на обработку данных: {stats['consented_clients'] or 0}\n"
+        report += f"Новых клиентов сегодня: {stats['new_today'] or 0}\n\n"
+        
+        report += "ТОП-10 КЛИЕНТОВ ПО СУММЕ ПОКУПОК:\n"
+        report += "-" * 60 + "\n"
+        
+        if top_clients:
+            for client in top_clients:
+                report += f"Клиент: {client['full_name']}\n"
+                report += f"  Телефон: {client['phone'] or 'Не указан'}\n"
+                report += f"  Email: {client['email'] or 'Не указан'}\n"
+                report += f"  Заказов: {client['order_count']}\n"
+                report += f"  Потрачено: {client['total_spent'] or 0:.2f} руб.\n"
+                report += f"  Последний заказ: {client['last_order_date'] or 'Нет заказов'}\n"
+                report += "-" * 40 + "\n"
+        else:
+            report += "Нет данных о покупках клиентов\n\n"
+        
+        report += "НОВЫЕ КЛИЕНТЫ ЗА ПОСЛЕДНИЙ МЕСЯЦ:\n"
+        report += "-" * 60 + "\n"
+        
+        if new_clients:
+            for client in new_clients:
+                report += f"Клиент: {client['full_name']}\n"
+                report += f"  Телефон: {client['phone'] or 'Не указан'}\n"
+                report += f"  Email: {client['email'] or 'Не указан'}\n"
+                report += f"  Дата регистрации: {client['registration_date']}\n"
+                report += "-" * 40 + "\n"
+        else:
+            report += "Нет новых клиентов за последний месяц\n"
+        
+        self.report_text.delete("1.0", tk.END)
+        self.report_text.insert("1.0", report)
+        
+        self.stats_label.config(text=f"Отчет сгенерирован: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Логируем генерацию отчета
+        self.db.log_audit(
+            self.current_user['id'],
+            'GENERATE_CLIENT_REPORT',
+            new_values={'total_clients': stats['total_clients'] or 0}
+        )
+    
+    def export_report_pdf(self):
+        """Экспорт отчета в PDF"""
+        report_text = self.report_text.get("1.0", tk.END).strip()
+        if not report_text:
+            messagebox.showwarning("Внимание", "Сначала сгенерируйте отчет")
+            return
+        
+        try:
+            # В реальном приложении здесь была бы генерация PDF
+            # Для демонстрации просто сохраним в текстовый файл
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+                title="Сохранить отчет"
+            )
+            
+            if file_path:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(report_text)
+                
+                messagebox.showinfo("Успех", f"Отчет сохранен в {file_path}")
+                
+                # Логируем экспорт
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'EXPORT_REPORT',
+                    new_values={'file_path': file_path}
+                )
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить отчет: {e}")
+    
+    def create_admin_tab(self):
+        """Вкладка администрирования"""
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text="Администрирование")
+        
+        # Панель инструментов
+        toolbar = ttk.Frame(frame)
+        toolbar.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(toolbar, text="Добавить пользователя", command=self.add_user_dialog).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Редактировать", command=self.edit_user_dialog).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Блокировать", command=self.toggle_user_status, style='Warning.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Сбросить пароль", command=self.reset_user_password).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Обновить", command=self.load_users).pack(side=tk.LEFT, padx=2)
+        
+        # Таблица пользователей
+        columns = ("ID", "Логин", "ФИО", "Должность", "Роль", "Активен", "Последний вход")
+        self.users_tree = ttk.Treeview(frame, columns=columns, show="headings", height=20)
+        
+        for col in columns:
+            self.users_tree.heading(col, text=col)
+            self.users_tree.column(col, width=100, minwidth=50)
+        
+        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.users_tree.yview)
+        self.users_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.users_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Загружаем пользователей
+        self.load_users()
+    
+    def load_users(self):
+        """Загрузка пользователей из БД"""
+        if not hasattr(self, 'users_tree'):
+            return
+            
+        for item in self.users_tree.get_children():
+            self.users_tree.delete(item)
+        
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM employees ORDER BY role, username")
+        users = cursor.fetchall()
+        conn.close()
+        
+        for user in users:
+            is_active = "Да" if user['is_active'] else "Нет"
+            last_login = user['last_login'] or "Никогда"
+            
+            self.users_tree.insert('', tk.END, values=(
+                user['id'],
+                user['username'],
+                user['full_name'],
+                user['position'] or '',
+                user['role'],
+                is_active,
+                last_login
+            ), tags=('inactive' if not user['is_active'] else ''))
+        
+        # Настройка цветов для неактивных пользователей
+        self.users_tree.tag_configure('inactive', background='#f5f5f5', foreground='gray')
+    
+    def add_user_dialog(self):
+        """Диалог добавления пользователя"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Добавить пользователя")
+        dialog.geometry("500x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Поля формы
+        fields = [
+            ("Логин*", "username"),
+            ("Пароль*", "password"),
+            ("ФИО*", "full_name"),
+            ("Email", "email"),
+            ("Телефон", "phone"),
+            ("Должность", "position")
+        ]
+        
+        entries = {}
+        
+        for i, (label_text, field_name) in enumerate(fields):
+            ttk.Label(dialog, text=label_text).grid(row=i, column=0, sticky=tk.W, padx=10, pady=5)
+            
+            if field_name == 'password':
+                entry = ttk.Entry(dialog, width=40, show="*")
+            else:
+                entry = ttk.Entry(dialog, width=40)
+            
+            entry.grid(row=i, column=1, padx=10, pady=5)
+            entries[field_name] = entry
+        
+        # Роль
+        ttk.Label(dialog, text="Роль*").grid(row=len(fields), column=0, sticky=tk.W, padx=10, pady=5)
+        role_var = tk.StringVar(value='viewer')
+        role_combo = ttk.Combobox(dialog, textvariable=role_var, width=37, state='readonly')
+        role_combo['values'] = ('admin', 'manager', 'content_manager', 'cashier', 'viewer')
+        role_combo.grid(row=len(fields), column=1, padx=10, pady=5)
+        
+        # Активен
+        active_var = tk.BooleanVar(value=True)
+        active_check = ttk.Checkbutton(dialog, text="Активен", variable=active_var)
+        active_check.grid(row=len(fields)+1, column=0, columnspan=2, padx=10, pady=10, sticky=tk.W)
+        
+        def save_user():
+            user_data = {
+                'username': entries['username'].get().strip(),
+                'password': entries['password'].get(),
+                'full_name': entries['full_name'].get().strip(),
+                'email': entries['email'].get().strip(),
+                'phone': entries['phone'].get().strip(),
+                'position': entries['position'].get().strip(),
+                'role': role_var.get(),
+                'is_active': active_var.get()
+            }
+            
+            # Валидация
+            if not user_data['username'] or not user_data['password'] or not user_data['full_name']:
+                messagebox.showerror("Ошибка", "Логин, пароль и ФИО обязательны для заполнения")
+                return
+            
+            if len(user_data['password']) < Config.PASSWORD_MIN_LENGTH:
+                messagebox.showerror("Ошибка", f"Пароль должен быть не менее {Config.PASSWORD_MIN_LENGTH} символов")
+                return
+            
+            # Сохраняем пользователя в БД
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            try:
+                password_hash = self.db._hash_password(user_data['password'])
+                
+                cursor.execute('''
+                    INSERT INTO employees 
+                    (username, password_hash, full_name, email, phone, position, role, is_active, must_change_password)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    user_data['username'],
+                    password_hash,
+                    user_data['full_name'],
+                    user_data['email'],
+                    user_data['phone'],
+                    user_data['position'],
+                    user_data['role'],
+                    1 if user_data['is_active'] else 0,
+                    1  # Требовать смену пароля при первом входе
+                ))
+                
+                user_id = cursor.lastrowid
+                conn.commit()
+                
+                # Логируем действие
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'CREATE_USER',
+                    'employees',
+                    user_id,
+                    new_values={k: v for k, v in user_data.items() if k != 'password'}
+                )
+                
+                messagebox.showinfo("Успех", "Пользователь успешно добавлен")
+                self.load_users()
+                dialog.destroy()
+            except sqlite3.IntegrityError:
+                messagebox.showerror("Ошибка", "Пользователь с таким логином уже существует")
+            except Exception as e:
+                conn.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось добавить пользователя: {e}")
+            finally:
+                conn.close()
+        
+        ttk.Button(dialog, text="Сохранить", command=save_user).grid(
+            row=len(fields)+2, column=0, columnspan=2, pady=20
+        )
+    
+    def edit_user_dialog(self):
+        """Редактирование пользователя"""
+        selection = self.users_tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите пользователя для редактирования")
+            return
+        
+        item = self.users_tree.item(selection[0])
+        user_id = item['values'][0]
+        
+        # Получаем данные пользователя
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM employees WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        conn.close()
+        
+        if not user:
+            messagebox.showerror("Ошибка", "Пользователь не найден")
+            return
+        
+        # Нельзя редактировать самого себя (админ может через смену пароля)
+        if user['id'] == self.current_user['id']:
+            messagebox.showwarning("Внимание", "Для изменения своих данных используйте смену пароля")
+            return
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Редактирование пользователя: {user['username']}")
+        dialog.geometry("500x350")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Поля формы
+        fields = [
+            ("Логин", "username"),
+            ("ФИО*", "full_name"),
+            ("Email", "email"),
+            ("Телефон", "phone"),
+            ("Должность", "position")
+        ]
+        
+        entries = {}
+        
+        for i, (label_text, field_name) in enumerate(fields):
+            ttk.Label(dialog, text=label_text).grid(row=i, column=0, sticky=tk.W, padx=10, pady=5)
+            
+            current_value = user[field_name] if user[field_name] is not None else ""
+            
+            entry = ttk.Entry(dialog, width=40)
+            entry.insert(0, str(current_value))
+            entry.grid(row=i, column=1, padx=10, pady=5)
+            
+            if field_name == 'username':
+                entry.config(state='readonly')
+            
+            entries[field_name] = entry
+        
+        # Роль
+        ttk.Label(dialog, text="Роль*").grid(row=len(fields), column=0, sticky=tk.W, padx=10, pady=5)
+        role_var = tk.StringVar(value=user['role'])
+        role_combo = ttk.Combobox(dialog, textvariable=role_var, width=37, state='readonly')
+        role_combo['values'] = ('admin', 'manager', 'content_manager', 'cashier', 'viewer')
+        role_combo.grid(row=len(fields), column=1, padx=10, pady=5)
+        
+        # Активен
+        active_var = tk.BooleanVar(value=bool(user['is_active']))
+        active_check = ttk.Checkbutton(dialog, text="Активен", variable=active_var)
+        active_check.grid(row=len(fields)+1, column=0, columnspan=2, padx=10, pady=10, sticky=tk.W)
+        
+        def save_changes():
+            user_data = {
+                'full_name': entries['full_name'].get().strip(),
+                'email': entries['email'].get().strip(),
+                'phone': entries['phone'].get().strip(),
+                'position': entries['position'].get().strip(),
+                'role': role_var.get(),
+                'is_active': active_var.get()
+            }
+            
+            # Валидация
+            if not user_data['full_name']:
+                messagebox.showerror("Ошибка", "ФИО обязательно для заполнения")
+                return
+            
+            # Обновляем данные в БД
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    UPDATE employees 
+                    SET full_name = ?, email = ?, phone = ?, position = ?, 
+                        role = ?, is_active = ?
+                    WHERE id = ?
+                ''', (
+                    user_data['full_name'],
+                    user_data['email'],
+                    user_data['phone'],
+                    user_data['position'],
+                    user_data['role'],
+                    1 if user_data['is_active'] else 0,
+                    user_id
+                ))
+                
+                conn.commit()
+                
+                # Логируем действие
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'UPDATE_USER',
+                    'employees',
+                    user_id,
+                    old_values=dict(user),
+                    new_values=user_data
+                )
+                
+                messagebox.showinfo("Успех", "Данные пользователя обновлены")
+                self.load_users()
+                dialog.destroy()
+            except Exception as e:
+                conn.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось обновить данные: {e}")
+            finally:
+                conn.close()
+        
+        ttk.Button(dialog, text="Сохранить", command=save_changes).grid(
+            row=len(fields)+2, column=0, columnspan=2, pady=20
+        )
+    
+    def toggle_user_status(self):
+        """Блокировка/разблокировка пользователя"""
+        selection = self.users_tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите пользователя")
+            return
+        
+        item = self.users_tree.item(selection[0])
+        user_id = item['values'][0]
+        username = item['values'][1]
+        current_status = item['values'][5] == "Да"
+        
+        # Нельзя блокировать самого себя
+        if user_id == self.current_user['id']:
+            messagebox.showwarning("Внимание", "Вы не можете заблокировать себя")
+            return
+        
+        action = "разблокировать" if not current_status else "заблокировать"
+        if messagebox.askyesno("Подтверждение", 
+                               f"Вы уверены, что хотите {action} пользователя '{username}'?"):
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            try:
+                new_status = 0 if current_status else 1
+                cursor.execute("UPDATE employees SET is_active = ? WHERE id = ?", (new_status, user_id))
+                conn.commit()
+                
+                # Логируем действие
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'TOGGLE_USER_STATUS',
+                    'employees',
+                    user_id,
+                    old_values={'is_active': current_status},
+                    new_values={'is_active': bool(new_status)}
+                )
+                
+                messagebox.showinfo("Успех", f"Пользователь {action}")
+                self.load_users()
+            except Exception as e:
+                conn.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось изменить статус: {e}")
+            finally:
+                conn.close()
+    
+    def reset_user_password(self):
+        """Сброс пароля пользователя"""
+        selection = self.users_tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите пользователя")
+            return
+        
+        item = self.users_tree.item(selection[0])
+        user_id = item['values'][0]
+        username = item['values'][1]
+        
+        # Нельзя сбросить пароль самому себе
+        if user_id == self.current_user['id']:
+            messagebox.showwarning("Внимание", "Для смены своего пароля используйте соответствующий пункт")
+            return
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Сброс пароля для {username}")
+        dialog.geometry("400x200")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text="Новый пароль:").pack(anchor=tk.W, padx=20, pady=(20, 5))
+        new_pass_entry = ttk.Entry(dialog, width=30, show="*")
+        new_pass_entry.pack(padx=20, pady=5)
+        
+        ttk.Label(dialog, text="Повторите пароль:").pack(anchor=tk.W, padx=20, pady=(10, 5))
+        confirm_pass_entry = ttk.Entry(dialog, width=30, show="*")
+        confirm_pass_entry.pack(padx=20, pady=5)
+        
+        def reset_password():
+            new_pass = new_pass_entry.get()
+            confirm_pass = confirm_pass_entry.get()
+            
+            if not new_pass or not confirm_pass:
+                messagebox.showerror("Ошибка", "Заполните все поля")
+                return
+            
+            if new_pass != confirm_pass:
+                messagebox.showerror("Ошибка", "Пароли не совпадают")
+                return
+            
+            if len(new_pass) < Config.PASSWORD_MIN_LENGTH:
+                messagebox.showerror("Ошибка", f"Пароль должен быть не менее {Config.PASSWORD_MIN_LENGTH} символов")
+                return
+            
+            if self.db.update_password(user_id, new_pass):
+                messagebox.showinfo("Успех", "Пароль успешно сброшен")
+                dialog.destroy()
+                
+                # Логируем сброс пароля
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'RESET_USER_PASSWORD',
+                    'employees',
+                    user_id
+                )
+            else:
+                messagebox.showerror("Ошибка", "Не удалось сбросить пароль")
+        
+        ttk.Button(dialog, text="Сбросить пароль", command=reset_password).pack(pady=20)
+    
+    def create_audit_tab(self):
+        """Вкладка аудита"""
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text="Аудит")
+        
+        # Панель инструментов
+        toolbar = ttk.Frame(frame)
+        toolbar.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(toolbar, text="Обновить", command=self.load_audit_logs).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Очистить старые", command=self.clear_old_audit_logs).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Экспорт", command=self.export_audit_logs).pack(side=tk.LEFT, padx=2)
+        
+        # Фильтры
+        filter_frame = ttk.Frame(toolbar)
+        filter_frame.pack(side=tk.RIGHT)
+        
+        ttk.Label(filter_frame, text="Дней:").pack(side=tk.LEFT)
+        self.audit_days_filter = ttk.Spinbox(filter_frame, from_=1, to=365, width=10)
+        self.audit_days_filter.pack(side=tk.LEFT, padx=5)
+        self.audit_days_filter.delete(0, tk.END)
+        self.audit_days_filter.insert(0, "7")
+        
+        ttk.Button(filter_frame, text="Применить", command=self.load_audit_logs).pack(side=tk.LEFT)
+        
+        # Таблица аудита
+        columns = ("ID", "Дата", "Пользователь", "Действие", "Таблица", "Запись", "IP")
+        self.audit_tree = ttk.Treeview(frame, columns=columns, show="headings", height=20)
+        
+        for col in columns:
+            self.audit_tree.heading(col, text=col)
+            self.audit_tree.column(col, width=100, minwidth=50)
+        
+        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.audit_tree.yview)
+        self.audit_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.audit_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Загружаем логи
+        self.load_audit_logs()
+    
+    def load_audit_logs(self):
+        """Загрузка логов аудита"""
+        if not hasattr(self, 'audit_tree'):
+            return
+            
+        for item in self.audit_tree.get_children():
+            self.audit_tree.delete(item)
+        
+        try:
+            days = int(self.audit_days_filter.get())
+        except ValueError:
+            days = 7
+        
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT 
+                a.*,
+                e.username as employee_username
+            FROM audit_log a
+            LEFT JOIN employees e ON a.employee_id = e.id
+            WHERE a.created_at >= date('now', ?)
+            ORDER BY a.created_at DESC
+            LIMIT 1000
+        ''', (f'-{days} days',))
+        
+        logs = cursor.fetchall()
+        conn.close()
+        
+        for log in logs:
+            employee = log['employee_username'] or 'Система'
+            table_name = log['table_name'] or ''
+            record_id = log['record_id'] or ''
+            
+            self.audit_tree.insert('', tk.END, values=(
+                log['id'],
+                log['created_at'],
+                employee,
+                log['action'],
+                table_name,
+                record_id,
+                log['ip_address'] or ''
+            ))
+    
+    def clear_old_audit_logs(self):
+        """Очистка старых логов аудита"""
+        if messagebox.askyesno("Подтверждение", 
+                               "Удалить логи аудита старше 30 дней?\n"
+                               "Это действие нельзя отменить."):
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute("DELETE FROM audit_log WHERE created_at < date('now', '-30 days')")
+                deleted_count = cursor.rowcount
+                conn.commit()
+                
+                messagebox.showinfo("Успех", f"Удалено {deleted_count} записей аудита")
+                self.load_audit_logs()
+                
+                # Логируем очистку
+                self.db.log_audit(
+                    self.current_user['id'],
+                    'CLEAR_AUDIT_LOGS',
+                    new_values={'deleted_count': deleted_count}
+                )
+            except Exception as e:
+                conn.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось очистить логи: {e}")
+            finally:
+                conn.close()
+    
+    def export_audit_logs(self):
+        """Экспорт логов аудита"""
+        try:
+            days = int(self.audit_days_filter.get())
+        except ValueError:
+            days = 7
+        
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Сохранить логи аудита"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT 
+                    a.created_at,
+                    e.username as employee_username,
+                    a.action,
+                    a.table_name,
+                    a.record_id,
+                    a.old_values,
+                    a.new_values,
+                    a.ip_address,
+                    a.user_agent
+                FROM audit_log a
+                LEFT JOIN employees e ON a.employee_id = e.id
+                WHERE a.created_at >= date('now', ?)
+                ORDER BY a.created_at DESC
+            ''', (f'-{days} days',))
+            
+            logs = cursor.fetchall()
+            conn.close()
+            
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['Дата', 'Пользователь', 'Действие', 'Таблица', 'ID записи', 
+                             'Старые значения', 'Новые значения', 'IP адрес', 'User Agent']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                
+                writer.writeheader()
+                for log in logs:
+                    writer.writerow({
+                        'Дата': log['created_at'],
+                        'Пользователь': log['employee_username'] or 'Система',
+                        'Действие': log['action'],
+                        'Таблица': log['table_name'] or '',
+                        'ID записи': log['record_id'] or '',
+                        'Старые значения': log['old_values'] or '',
+                        'Новые значения': log['new_values'] or '',
+                        'IP адрес': log['ip_address'] or '',
+                        'User Agent': log['user_agent'] or ''
+                    })
+            
+            messagebox.showinfo("Успех", f"Логи аудита экспортированы в {file_path}")
+            
+            # Логируем экспорт
+            self.db.log_audit(
+                self.current_user['id'],
+                'EXPORT_AUDIT_LOGS',
+                new_values={'file_path': file_path, 'days': days, 'count': len(logs)}
+            )
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось экспортировать логи: {e}")
     
     def logout(self):
         """Выход из системы"""
@@ -384,3 +2799,8 @@ class TradingAppGUI:
     def run(self):
         """Запуск приложения"""
         self.root.mainloop()
+
+# Запуск приложения
+if __name__ == "__main__":
+    app = TradingAppGUI()
+    app.run()
